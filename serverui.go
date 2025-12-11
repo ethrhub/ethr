@@ -325,7 +325,7 @@ func (u *serverCli) printDbg(format string, a ...interface{}) {
 
 func (u *serverCli) printErr(format string, a ...interface{}) {
 	s := fmt.Sprintf(format, a...)
-	fmt.Println(s)
+	fmt.Printf("\x1b[31m%s\x1b[0m\n", s)
 	logError(s)
 }
 

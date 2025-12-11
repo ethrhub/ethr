@@ -31,7 +31,7 @@ func (u *clientUI) printMsg(format string, a ...interface{}) {
 func (u *clientUI) printErr(format string, a ...interface{}) {
 	s := fmt.Sprintf(format, a...)
 	logError(s)
-	fmt.Println(s)
+	fmt.Printf("\x1b[31m%s\x1b[0m\n", s)
 }
 
 func (u *clientUI) printDbg(format string, a ...interface{}) {

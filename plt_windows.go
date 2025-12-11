@@ -394,9 +394,11 @@ func VerifyPermissionForTest(testID EthrTestID) {
 	if (testID.Type == TraceRoute || testID.Type == MyTraceRoute) &&
 		(testID.Protocol == TCP) {
 		if !IsAdmin() {
-			ui.printMsg("Warning: You are not running as administrator. For %s based %s",
+			ui.printErr("Error: %s %s test requires Administrator privileges on Windows.",
 				protoToString(testID.Protocol), testToString(testID.Type))
-			ui.printMsg("test, running as administrator is required.\n")
+			ui.printErr("Please run from an elevated command prompt (Run as Administrator).")
+			ui.printErr("This is required to receive ICMP 'TTL exceeded' responses.")
+			os.Exit(1)
 		}
 		ui.printMsg("Note: TCP traceroute on Windows requires Windows Firewall to allow")
 		ui.printMsg("ICMP 'TTL exceeded' messages. If results show '???', run this")

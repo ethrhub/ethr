@@ -386,15 +386,17 @@ func VerifyPermissionForTest(testID EthrTestID) {
 	if testID.Protocol == ICMP || (testID.Protocol == TCP &&
 		(testID.Type == TraceRoute || testID.Type == MyTraceRoute)) {
 		if !IsAdmin() {
-			ui.printMsg("Warning: You are not running as administrator. For %s based %s",
+			ui.printErr("\nError: %s %s test requires root/sudo privileges.",
 				protoToString(testID.Protocol), testToString(testID.Type))
-			ui.printMsg("test, running as administrator is required.\n")
+			ui.printErr("Please run with sudo: sudo ./ethr <your-options>")
+			ui.printErr("This is required because raw sockets are needed to send/receive ICMP packets.\n")
+			os.Exit(1)
 		}
 	}
 }
 
 func IsAdmin() bool {
-	return true
+	return os.Geteuid() == 0
 }
 
 func SetTClass(fd uintptr, tos int) {
