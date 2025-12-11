@@ -28,6 +28,11 @@ var (
 	proc_get_console_window    = kernel32.NewProc("GetConsoleWindow")
 	proc_get_system_menu       = user32.NewProc("GetSystemMenu")
 	proc_delete_menu           = user32.NewProc("DeleteMenu")
+
+	// Windows ICMP API for traceroute (doesn't require admin or firewall exceptions)
+	proc_icmp_create_file = iphlpapi.NewProc("IcmpCreateFile")
+	proc_icmp_close_handle = iphlpapi.NewProc("IcmpCloseHandle")
+	proc_icmp_send_echo    = iphlpapi.NewProc("IcmpSendEcho")
 )
 
 type ethrNetDevInfo struct {
@@ -217,6 +222,121 @@ func setSockOptInt(fd uintptr, level, opt, val int) (err error) {
 	return
 }
 
+// Windows ICMP API structures for traceroute
+// IP_OPTION_INFORMATION for IcmpSendEcho
+type ipOptionInfo struct {
+	Ttl         uint8
+	Tos         uint8
+	Flags       uint8
+	OptionsSize uint8
+	OptionsData uintptr
+}
+
+// ICMP_ECHO_REPLY structure returned by IcmpSendEcho
+type icmpEchoReply struct {
+	Address       uint32 // Replying address (in network byte order)
+	Status        uint32 // Reply IP_STATUS
+	RoundTripTime uint32 // RTT in milliseconds
+	DataSize      uint16 // Reply data size
+	Reserved      uint16 // Reserved for system use
+	Data          uintptr // Pointer to the reply data
+	Options       ipOptionInfo // Reply options
+}
+
+// IP_STATUS codes
+const (
+	IP_SUCCESS               = 0
+	IP_BUF_TOO_SMALL         = 11001
+	IP_DEST_NET_UNREACHABLE  = 11002
+	IP_DEST_HOST_UNREACHABLE = 11003
+	IP_DEST_PROT_UNREACHABLE = 11004
+	IP_DEST_PORT_UNREACHABLE = 11005
+	IP_NO_RESOURCES          = 11006
+	IP_BAD_OPTION            = 11007
+	IP_HW_ERROR              = 11008
+	IP_PACKET_TOO_BIG        = 11009
+	IP_REQ_TIMED_OUT         = 11010
+	IP_BAD_REQ               = 11011
+	IP_BAD_ROUTE             = 11012
+	IP_TTL_EXPIRED_TRANSIT   = 11013
+	IP_TTL_EXPIRED_REASSEM   = 11014
+	IP_PARAM_PROBLEM         = 11015
+	IP_SOURCE_QUENCH         = 11016
+	IP_OPTION_TOO_BIG        = 11017
+	IP_BAD_DESTINATION       = 11018
+	IP_GENERAL_FAILURE       = 11050
+)
+
+// WinIcmpSendEcho sends an ICMP echo request using Windows API
+// This works without admin privileges and without firewall exceptions
+// Returns: replying address (as string), round trip time, status code, error
+func WinIcmpSendEcho(destIP string, ttl int, timeout uint32) (string, uint32, uint32, error) {
+	// Parse destination IP
+	ip := net.ParseIP(destIP)
+	if ip == nil {
+		return "", 0, 0, os.ErrInvalid
+	}
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return "", 0, 0, os.ErrInvalid // IPv6 not supported by IcmpSendEcho
+	}
+	destAddr := uint32(ip4[0]) | uint32(ip4[1])<<8 | uint32(ip4[2])<<16 | uint32(ip4[3])<<24
+
+	// Create ICMP handle
+	handle, _, err := syscall.Syscall(proc_icmp_create_file.Addr(), 0, 0, 0, 0)
+	if handle == 0 || handle == ^uintptr(0) {
+		return "", 0, 0, err
+	}
+	defer syscall.Syscall(proc_icmp_close_handle.Addr(), 1, handle, 0, 0)
+
+	// Prepare send data
+	sendData := []byte("Ethr ICMP Probe")
+	sendSize := uint16(len(sendData))
+
+	// Prepare IP options with TTL
+	opts := ipOptionInfo{
+		Ttl: uint8(ttl),
+		Tos: uint8(gTOS),
+	}
+
+	// Reply buffer needs to be large enough for ICMP_ECHO_REPLY + data + 8 bytes for ICMP error message
+	replySize := uint32(unsafe.Sizeof(icmpEchoReply{})) + uint32(sendSize) + 8
+	replyBuf := make([]byte, replySize)
+
+	// Call IcmpSendEcho
+	ret, _, _ := syscall.Syscall9(
+		proc_icmp_send_echo.Addr(),
+		8,
+		handle,
+		uintptr(destAddr),
+		uintptr(unsafe.Pointer(&sendData[0])),
+		uintptr(sendSize),
+		uintptr(unsafe.Pointer(&opts)),
+		uintptr(unsafe.Pointer(&replyBuf[0])),
+		uintptr(replySize),
+		uintptr(timeout),
+		0,
+	)
+
+	if ret == 0 {
+		// No reply received (timeout)
+		return "", 0, IP_REQ_TIMED_OUT, nil
+	}
+
+	// Parse reply
+	reply := (*icmpEchoReply)(unsafe.Pointer(&replyBuf[0]))
+	
+	// Convert address from network byte order to string
+	addrBytes := make([]byte, 4)
+	addrBytes[0] = byte(reply.Address)
+	addrBytes[1] = byte(reply.Address >> 8)
+	addrBytes[2] = byte(reply.Address >> 16)
+	addrBytes[3] = byte(reply.Address >> 24)
+	replyAddr := net.IPv4(addrBytes[0], addrBytes[1], addrBytes[2], addrBytes[3]).String()
+
+	return replyAddr, reply.RoundTripTime, reply.Status, nil
+}
+
 const (
 	SIO_RCVALL             = syscall.IOC_IN | syscall.IOC_VENDOR | 1
 	RCVALL_OFF             = 0
@@ -261,7 +381,10 @@ func IcmpNewConn(address string) (net.PacketConn, error) {
 	size := uint32(unsafe.Sizeof(flag))
 	err = syscall.WSAIoctl(socketHandle, SIO_RCVALL, (*byte)(unsafe.Pointer(&flag)), size, nil, 0, &unused, nil, 0)
 	if err != nil {
-		// Ignore the error as for ICMP related TraceRoute, this is not required.
+		ui.printDbg("SIO_RCVALL failed (may need admin or firewall exception): %v", err)
+		// Try without RCVALL - basic ICMP socket may still work for some cases
+	} else {
+		ui.printDbg("SIO_RCVALL succeeded - raw ICMP capture enabled")
 	}
 
 	return conn, nil
@@ -275,6 +398,11 @@ func VerifyPermissionForTest(testID EthrTestID) {
 				protoToString(testID.Protocol), testToString(testID.Type))
 			ui.printMsg("test, running as administrator is required.\n")
 		}
+		ui.printMsg("Note: TCP traceroute on Windows requires Windows Firewall to allow")
+		ui.printMsg("ICMP 'TTL exceeded' messages. If results show '???', run this")
+		ui.printMsg("command as Administrator to add a firewall rule:")
+		ui.printMsg("  netsh advfirewall firewall add rule name=\"ICMP TTL Exceeded\" protocol=icmpv4:11,any dir=in action=allow")
+		ui.printMsg("Or use ICMP traceroute instead: -p icmp\n")
 	}
 }
 
@@ -290,4 +418,32 @@ func IsAdmin() bool {
 
 func SetTClass(fd uintptr, tos int) {
 	return
+}
+
+// WinIcmpProbe performs a single ICMP probe using Windows API
+// This is used for traceroute and works without admin privileges
+func WinIcmpProbe(destIP string, ttl int, timeout uint32) (peerAddr string, rtt uint32, isLast bool, err error) {
+	peerAddr, rtt, status, err := WinIcmpSendEcho(destIP, ttl, timeout)
+	if err != nil {
+		return "", 0, false, err
+	}
+
+	switch status {
+	case IP_SUCCESS:
+		// Reached destination
+		isLast = true
+		return peerAddr, rtt, isLast, nil
+	case IP_TTL_EXPIRED_TRANSIT, IP_TTL_EXPIRED_REASSEM:
+		// Intermediate hop responded
+		return peerAddr, rtt, false, nil
+	case IP_REQ_TIMED_OUT:
+		// No response
+		return "", 0, false, nil
+	default:
+		// Other error, but we got a reply address
+		if peerAddr != "" && peerAddr != "0.0.0.0" {
+			return peerAddr, rtt, false, nil
+		}
+		return "", 0, false, nil
+	}
 }

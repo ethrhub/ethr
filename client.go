@@ -599,32 +599,35 @@ func tcpRunBandwidthTestWithCtrl(test *ethrTest, toStop chan int, duration time.
 	testEnding := make(chan struct{})
 
 	// Wait for duration, then request results BEFORE signaling test completion
-	go func() {
-		// Wait for the test duration
-		time.Sleep(duration)
-		
-		// Signal that we're ending the test intentionally
-		close(testEnding)
-		
-		// Close all data connections first - this signals server to stop reading
-		// and ensures all data is accounted for before we request results
-		for _, conn := range connections {
-			conn.Close()
-		}
-		
-		// Wait for data goroutines to finish
-		wg.Wait()
-		
-		// Wait a bit more for server side to finish processing
-		time.Sleep(200 * time.Millisecond)
-		
-		// Now request results - server has finished counting all data
-		requestServerResults(test, ctrlConn, duration)
-		ctrlConn.Close()
-		
-		// Now signal that test should stop
-		toStop <- timeout
-	}()
+	// If duration is 0, run forever (only stop on interrupt)
+	if duration > 0 {
+		go func() {
+			// Wait for the test duration
+			time.Sleep(duration)
+			
+			// Signal that we're ending the test intentionally
+			close(testEnding)
+			
+			// Close all data connections first - this signals server to stop reading
+			// and ensures all data is accounted for before we request results
+			for _, conn := range connections {
+				conn.Close()
+			}
+			
+			// Wait for data goroutines to finish
+			wg.Wait()
+			
+			// Wait a bit more for server side to finish processing
+			time.Sleep(200 * time.Millisecond)
+			
+			// Now request results - server has finished counting all data
+			requestServerResults(test, ctrlConn, duration)
+			ctrlConn.Close()
+			
+			// Now signal that test should stop
+			toStop <- timeout
+		}()
+	}
 
 	// Also monitor data connections - if they all disconnect early, test ends
 	go func() {
@@ -1081,7 +1084,8 @@ func tcpProbe(test *ethrTest, hop int, hopIP string, hopData *ethrHopData) (erro
 	peerAddrChan := make(chan string)
 	endTimeChan := make(chan time.Time)
 	go func() {
-		peerAddr, _, _ := icmpRecvMsg(c, TCP, time.Second*2, hopIP, b, nil, 0)
+		// Use shorter timeout for TCP traceroute - ICMP TTL exceeded should arrive quickly
+		peerAddr, _, _ := icmpRecvMsg(c, TCP, time.Millisecond*500, hopIP, b, nil, 0)
 		endTimeChan <- time.Now()
 		peerAddrChan <- peerAddr
 	}()
@@ -1231,8 +1235,24 @@ func icmpDiscoverHops(test *ethrTest, dstIPAddr net.IPAddr, mtrMode bool) error 
 	}
 	for i := 0; i < gMaxHops; i++ {
 		var hopData ethrHopData
-		err, isLast := icmpProbe(test, dstIPAddr, time.Second*2, "", &hopData, i, 1)
-		if err == nil {
+		// First try Windows ICMP API (works without admin on Windows)
+		peerAddr, rttMs, isLast, winErr := WinIcmpProbe(dstIPAddr.String(), i+1, 2000)
+		if winErr == nil {
+			// Windows API succeeded
+			if peerAddr != "" && peerAddr != "0.0.0.0" {
+				hopData.addr = peerAddr
+				hopData.last = time.Duration(rttMs) * time.Millisecond
+				hopData.sent = 1
+				hopData.rcvd = 1
+			} else {
+				hopData.sent = 1
+				hopData.lost = 1
+			}
+		} else {
+			// Fall back to raw socket method (for non-Windows or if Windows API fails)
+			_, isLast = icmpProbe(test, dstIPAddr, time.Second*2, "", &hopData, i, 1)
+		}
+		if hopData.addr != "" {
 			hopData.name, hopData.fullName = lookupHopName(hopData.addr)
 		}
 		if hopData.addr != "" {
@@ -1446,6 +1466,14 @@ func icmpRecvMsg(c net.PacketConn, proto EthrProtocol, timeout time.Duration, ne
 }
 
 func runUDPBandwidthAndPpsTest(test *ethrTest) {
+	// Warn about potential UDP fragmentation issues
+	bufSize := test.clientParam.BufferSize
+	if bufSize > 1400 {
+		ui.printDbg("WARNING: UDP buffer size (%d bytes) exceeds typical MTU (1500 bytes).", bufSize)
+		ui.printDbg("Large UDP packets may be fragmented and dropped, especially over virtual networks (WSL, VMs, VPNs).")
+		ui.printDbg("If you see no traffic on the server, try reducing buffer size with: -l 1400 or smaller.")
+	}
+
 	for th := uint32(0); th < test.clientParam.NumThreads; th++ {
 		go func(th uint32) {
 			size := test.clientParam.BufferSize
@@ -1502,6 +1530,14 @@ func runUDPBandwidthAndPpsTest(test *ethrTest) {
 // 2. Client has no idea how many packets actually arrived at server
 // 3. Server's received bandwidth/PPS can be significantly different from client's sent rate
 func runUDPBandwidthAndPpsTestWithCtrl(test *ethrTest, toStop chan int, duration time.Duration) {
+	// Warn about potential UDP fragmentation issues
+	bufSize := test.clientParam.BufferSize
+	if bufSize > 1400 {
+		ui.printDbg("WARNING: UDP buffer size (%d bytes) exceeds typical MTU (1500 bytes).", bufSize)
+		ui.printDbg("Large UDP packets may be fragmented and dropped, especially over virtual networks (WSL, VMs, VPNs).")
+		ui.printDbg("If you see no traffic on the server, try reducing buffer size with: -l 1400 or smaller.")
+	}
+	
 	// Phase 1: Create UDP connections first so we know their source ports
 	numThreads := test.clientParam.NumThreads
 	udpConns := make([]net.Conn, 0, numThreads)
@@ -1527,7 +1563,7 @@ func runUDPBandwidthAndPpsTestWithCtrl(test *ethrTest, toStop chan int, duration
 		udpPorts = append(udpPorts, lport)
 	}
 	
-	ui.printDbg("Created %d UDP connections with ports: %v", len(udpPorts), udpPorts)
+	ui.printDbg("Created %d UDP connections to %s with local ports: %v", len(udpPorts), test.dialAddr, udpPorts)
 	
 	// Phase 2: Establish TCP control connection
 	ctrlConn, err := ethrDial(TCP, test.dialAddr)
@@ -1636,17 +1672,20 @@ func runUDPBandwidthAndPpsTestWithCtrl(test *ethrTest, toStop chan int, duration
 	runUDPBandwidthWithConns(test, udpConns)
 
 	// Wait for duration, then request results BEFORE signaling test completion
-	go func() {
-		// Wait for the test duration
-		time.Sleep(duration)
-		// Small extra delay to ensure server has received final packets
-		time.Sleep(200 * time.Millisecond)
-		// Request results from server
-		requestServerResults(test, ctrlConn, duration)
-		ctrlConn.Close()
-		// Now signal that test should stop
-		toStop <- timeout
-	}()
+	// If duration is 0, run forever (only stop on interrupt)
+	if duration > 0 {
+		go func() {
+			// Wait for the test duration
+			time.Sleep(duration)
+			// Small extra delay to ensure server has received final packets
+			time.Sleep(200 * time.Millisecond)
+			// Request results from server
+			requestServerResults(test, ctrlConn, duration)
+			ctrlConn.Close()
+			// Now signal that test should stop
+			toStop <- timeout
+		}()
+	}
 }
 
 // runUDPBandwidthWithConns runs UDP bandwidth test with pre-created connections
@@ -1673,7 +1712,7 @@ func runUDPBandwidthWithConns(test *ethrTest, conns []net.Conn) {
 				default:
 					n, err := conn.Write(buff[:bytesToSend])
 					if err != nil {
-						ui.printDbg("%v", err)
+						ui.printDbg("UDP Write error: %v", err)
 						continue
 					}
 					if n < bytesToSend {

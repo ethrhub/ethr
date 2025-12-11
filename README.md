@@ -176,6 +176,19 @@ In addition, for TCP based TraceRoute and MyTraceRoute, Administrator mode is re
 ### Linux
 For ICMP Ping, ICMP/TCP TraceRoute and MyTraceRoute, privileged mode is required via sudo.
 
+### UDP Tests over Virtual Networks (WSL, VMs, VPNs)
+UDP bandwidth tests use a default buffer size of 16KB, which exceeds typical network MTU (1500 bytes). When running over virtual networks such as WSL2, VMs, or VPNs, large UDP packets may be fragmented and silently dropped, causing the server to receive no traffic even though the client reports sending data.
+
+**Workaround:** Use a smaller buffer size that fits within the MTU:
+```
+// Use 1400 bytes (safe for most networks)
+ethr -c <server> -p udp -l 1400
+
+// Or use even smaller packets for packet/s tests
+ethr -c <server> -p udp -t p
+```
+Run with `-debug` flag to see warnings about potential fragmentation issues.
+
 ## Complete Command Line
 ### Common Parameters
 ```

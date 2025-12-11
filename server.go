@@ -12,6 +12,7 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,6 +41,11 @@ var gSessionStatsLock sync.RWMutex
 var gUDPPortToSession = make(map[string]string)
 var gUDPPortToSessionLock sync.RWMutex
 
+// Global registry mapping port-only -> sessionID for NAT scenarios (e.g., WSL2)
+// where TCP and UDP may show different source IPs
+var gUDPPortOnlyToSession = make(map[int]string)
+var gUDPPortOnlyToSessionLock sync.RWMutex
+
 // registerSessionStats registers a new session with its UDP ports
 func registerSessionStats(sessionID string, remoteIP string, udpPorts []int) *sessionStats {
 	gSessionStatsLock.Lock()
@@ -53,7 +59,7 @@ func registerSessionStats(sessionID string, remoteIP string, udpPorts []int) *se
 	}
 	gSessionStats[sessionID] = stats
 	
-	// Register UDP port mappings
+	// Register UDP port mappings (both IP:port and port-only for NAT scenarios)
 	gUDPPortToSessionLock.Lock()
 	for _, port := range udpPorts {
 		key := fmt.Sprintf("%s:%d", remoteIP, port)
@@ -61,6 +67,15 @@ func registerSessionStats(sessionID string, remoteIP string, udpPorts []int) *se
 		ui.printDbg("Registered UDP port mapping: %s -> session %s", key, sessionID)
 	}
 	gUDPPortToSessionLock.Unlock()
+	
+	// Also register port-only mappings for NAT scenarios (e.g., WSL2 -> Windows)
+	// where UDP packets may arrive from a different IP than the TCP control channel
+	gUDPPortOnlyToSessionLock.Lock()
+	for _, port := range udpPorts {
+		gUDPPortOnlyToSession[port] = sessionID
+		ui.printDbg("Registered UDP port-only mapping: %d -> session %s", port, sessionID)
+	}
+	gUDPPortOnlyToSessionLock.Unlock()
 	
 	ui.printDbg("Registered session %s from %s with %d UDP ports", sessionID, remoteIP, len(udpPorts))
 	return stats
@@ -74,15 +89,28 @@ func getSessionStatsByID(sessionID string) *sessionStats {
 }
 
 // getSessionStatsByUDPAddr looks up session stats by UDP source address (ip:port)
-func getSessionStatsByUDPAddr(remoteAddr string) *sessionStats {
+// Falls back to port-only lookup for NAT scenarios (e.g., WSL2 -> Windows)
+func getSessionStatsByUDPAddr(remoteAddr string, port int) *sessionStats {
+	// First try exact IP:port match
 	gUDPPortToSessionLock.RLock()
 	sessionID, found := gUDPPortToSession[remoteAddr]
 	gUDPPortToSessionLock.RUnlock()
 	
-	if !found {
-		return nil
+	if found {
+		return getSessionStatsByID(sessionID)
 	}
-	return getSessionStatsByID(sessionID)
+	
+	// Fall back to port-only lookup for NAT scenarios
+	gUDPPortOnlyToSessionLock.RLock()
+	sessionID, found = gUDPPortOnlyToSession[port]
+	gUDPPortOnlyToSessionLock.RUnlock()
+	
+	if found {
+		ui.printDbg("UDP packet matched via port-only lookup (NAT scenario): port %d -> session %s", port, sessionID)
+		return getSessionStatsByID(sessionID)
+	}
+	
+	return nil
 }
 
 // unregisterSessionStats removes a session and its port mappings
@@ -101,6 +129,12 @@ func unregisterSessionStats(sessionID string) {
 			delete(gUDPPortToSession, key)
 		}
 		gUDPPortToSessionLock.Unlock()
+		
+		gUDPPortOnlyToSessionLock.Lock()
+		for _, port := range stats.udpPorts {
+			delete(gUDPPortOnlyToSession, port)
+		}
+		gUDPPortOnlyToSessionLock.Unlock()
 		ui.printDbg("Unregistered session %s", sessionID)
 	}
 }
@@ -619,6 +653,9 @@ func srvrRunUDPServer() error {
 		ui.printDbg("Error listening on %s for UDP pkt/s tests: %v", gEthrPortStr, err)
 		return err
 	}
+	ui.printDbg("UDP server listening on: %s", l.LocalAddr().String())
+	ui.printDbg("NOTE: If clients send large UDP packets (>MTU), fragmentation may cause packet loss.")
+	ui.printDbg("Virtual networks (WSL, VMs, VPNs) often drop fragmented UDP. Advise clients to use: -l 1400")
 	// Set socket buffer to 4MB per CPU so we can queue 4MB per CPU in case Ethr is not
 	// able to keep up temporarily.
 	err = l.SetReadBuffer(runtime.NumCPU() * 4 * 1024 * 1024)
@@ -653,11 +690,11 @@ func srvrRunUDPPacketHandler(conn *net.UDPConn) {
 		for {
 			time.Sleep(100 * time.Millisecond)
 			for k, v := range tests {
-				ui.printDbg("Found Test from server: %v, time: %v", k, v.lastAccess)
 				// At 200ms of no activity, mark the test in-active so stats stop
 				// printing.
 				if time.Since(v.lastAccess) > (200 * time.Millisecond) {
 					v.isDormant = true
+					ethrUnused(k)
 				}
 				// At 2s of no activity, delete the test by assuming that client
 				// has stopped.
@@ -677,12 +714,12 @@ func srvrRunUDPPacketHandler(conn *net.UDPConn) {
 		}
 		ethrUnused(remoteIP)
 		ethrUnused(n)
-		server, port, _ := net.SplitHostPort(remoteIP.String())
-		
-		// First, try to look up session stats by IP:port (control channel mode)
-		// This enables accurate per-client tracking even with multiple clients from same IP
+		server, portStr, _ := net.SplitHostPort(remoteIP.String())
+		portNum, _ := strconv.Atoi(portStr)
 		remoteAddrStr := remoteIP.String()
-		sessionStatsPtr := getSessionStatsByUDPAddr(remoteAddrStr)
+		
+		// Try to look up session stats by IP:port first, then fall back to port-only
+		sessionStatsPtr := getSessionStatsByUDPAddr(remoteAddrStr, portNum)
 		if sessionStatsPtr != nil {
 			// Found session-based stats - use those
 			sessionStatsPtr.lastAccess = time.Now()
@@ -714,9 +751,10 @@ func srvrRunUDPPacketHandler(conn *net.UDPConn) {
 			continue
 		}
 		
-		// Fallback: IP-only lookup (no control channel / -ncc mode)
-		// Note: Multiple clients from same IP will share stats in this mode
-		ethrUnused(port)
+		// No session match found - accept traffic anyway and track by IP
+		// This handles NAT scenarios and -ncc (no control channel) mode
+		ui.printDbg("UDP packet from %s:%s - no session match, using IP-based tracking", server, portStr)
+		ethrUnused(portStr)
 		test, found := tests[server]
 		if !found {
 			var isNew bool
@@ -725,7 +763,7 @@ func srvrRunUDPPacketHandler(conn *net.UDPConn) {
 				tests[server] = test
 			}
 			if isNew {
-				ui.printDbg("Creating UDP test from server: %v, lastAccess: %v", server, time.Now())
+				ui.printDbg("Creating new UDP test for client IP: %s", server)
 				ui.emitTestHdr()
 			}
 		}
@@ -737,7 +775,7 @@ func srvrRunUDPPacketHandler(conn *net.UDPConn) {
 			atomic.AddUint64(&test.testResult.totalPps, 1)
 			atomic.AddUint64(&test.testResult.totalBw, uint64(n))
 		} else {
-			ui.printDbg("Unable to create test for UDP traffic on port %s from %s port %s", gEthrPortStr, server, port)
+			ui.printDbg("Unable to create test for UDP from client %s:%s", server, portStr)
 		}
 	}
 }
