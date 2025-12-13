@@ -9,6 +9,7 @@ GO_BIN ?= go
 GO_LINT ?= golint
 GO_FMT ?= gofmt
 BINARY_NAME ?= ethr
+GO_BUILD_FLAGS ?= -buildvcs=false
 
 .PHONY: fmt
 fmt:
@@ -19,11 +20,11 @@ fmt:
 
 .PHONY: build-docker
 build-docker: 
-	$(GO_BIN) build -o /out/$(BINARY_NAME)
+	$(GO_BIN) build $(GO_BUILD_FLAGS) -o /out/$(BINARY_NAME)
 
 .PHONY: build
 build:
-	$(GO_BIN) build -o $(BINARY_NAME) .
+	$(GO_BIN) build $(GO_BUILD_FLAGS) -o $(BINARY_NAME) .
 
 .PHONY: lint
 lint:
