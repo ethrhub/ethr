@@ -142,6 +142,15 @@ var hubAgentId string
 var hubAgentTitle string
 var hubHttpClient *http.Client
 
+// Track running tests for cancellation
+var runningTests = struct {
+	sync.RWMutex
+	tests map[string]chan struct{} // sessionId -> cancel channel
+}{tests: make(map[string]chan struct{})}
+
+// Mutex to prevent overlapping server tests on same port
+var serverTestMutex sync.Mutex
+
 // Token persistence helpers - per-hub storage
 func getTokensDir() string {
 	homeDir, err := os.UserHomeDir()
@@ -374,17 +383,17 @@ func runHubAgent(config HubConfig) {
 		
 		if time.Now().Before(expiresAt.Add(-bufferTime)) {
 			// Access token is still valid
-			ui.printMsg("Using cached access token (valid for %v more)", time.Until(expiresAt))
+			ui.printDbg("Using cached access token (valid for %v more)", time.Until(expiresAt))
 			hubAuth.AccessToken = loadedAccessToken
 			hubAuth.RefreshToken = loadedRefreshToken
 			hubAuth.ExpiresAt = expiresAt
 		} else {
 			// Try to refresh the token
-			ui.printMsg("Access token expired or expiring soon, refreshing...")
+			ui.printDbg("Access token expired or expiring soon, refreshing...")
 			ui.printDbg("Refresh token: %.20s...", loadedRefreshToken)
 			tokenResp, err := tryRefreshToken(config.ServerURL, loadedRefreshToken)
 			if err == nil {
-				ui.printMsg("Token refreshed successfully")
+				ui.printDbg("Token refreshed successfully")
 				hubAuth.AccessToken = tokenResp.AccessToken
 				hubAuth.RefreshToken = tokenResp.RefreshToken
 				hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
@@ -423,7 +432,7 @@ func runHubAgent(config HubConfig) {
 	if err != nil {
 		// If registration fails with what looks like an auth error, try refreshing token
 		if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "Unauthorized") {
-			ui.printMsg("Registration failed with auth error, attempting token refresh...")
+			ui.printDbg("Registration failed with auth error, attempting token refresh...")
 			
 			hubAuth.mu.RLock()
 			refreshToken := hubAuth.RefreshToken
@@ -432,7 +441,7 @@ func runHubAgent(config HubConfig) {
 			if refreshToken != "" {
 				tokenResp, refreshErr := tryRefreshToken(config.ServerURL, refreshToken)
 				if refreshErr == nil {
-					ui.printMsg("Token refreshed successfully, retrying registration...")
+					ui.printDbg("Token refreshed successfully, retrying registration...")
 					hubAuth.mu.Lock()
 					hubAuth.AccessToken = tokenResp.AccessToken
 					hubAuth.RefreshToken = tokenResp.RefreshToken
@@ -935,31 +944,76 @@ func commandLoop(serverURL string) {
 		resp.Body.Close()
 
 		if cmdResp.HasCommand {
-			ui.printMsg("Received command for session: %s", cmdResp.SessionId)
-			go executeCommand(serverURL, cmdResp.SessionId, cmdResp.Command)
+			// Check if this is a cancel command
+			if cmdResp.Command.Mode == "cancel" {
+				ui.printDbg("Received cancel command for session: %s", cmdResp.SessionId)
+				cancelTest(cmdResp.SessionId)
+			} else {
+				ui.printMsg("Received command for session: %s", cmdResp.SessionId)
+				go executeCommand(serverURL, cmdResp.SessionId, cmdResp.Command)
+			}
 		}
+	}
+}
+
+func cancelTest(sessionId string) {
+	runningTests.Lock()
+	defer runningTests.Unlock()
+	
+	// Debug: print all running tests
+	ui.printDbg("Looking for session %s to cancel. Currently running tests:", sessionId)
+	for id := range runningTests.tests {
+		ui.printDbg("  - %s", id)
+	}
+	
+	if cancelChan, exists := runningTests.tests[sessionId]; exists {
+		close(cancelChan)
+		delete(runningTests.tests, sessionId)
+		ui.printDbg("Cancelled test session: %s", sessionId)
+	} else {
+		ui.printDbg("No running test found for session: %s", sessionId)
 	}
 }
 
 func executeCommand(serverURL string, sessionId string, cmd TestCommand) {
 	ui.printMsg("Executing command: mode=%s, protocol=%s, testType=%s", cmd.Mode, cmd.Protocol, cmd.TestType)
 
+	// Create cancel channel and register it
+	cancelChan := make(chan struct{})
+	runningTests.Lock()
+	runningTests.tests[sessionId] = cancelChan
+	runningTests.Unlock()
+	
 	// Update status to running
 	updateSessionStatus(serverURL, sessionId, "Running", "")
 
 	// Execute the test based on mode
+	// Note: Each mode function is responsible for cleaning up the runningTests map
 	if cmd.Mode == "server" {
-		executeServerMode(serverURL, sessionId, cmd)
+		executeServerMode(serverURL, sessionId, cmd, cancelChan)
 	} else if cmd.Mode == "client" {
-		executeClientMode(serverURL, sessionId, cmd)
+		executeClientMode(serverURL, sessionId, cmd, cancelChan)
 	} else if cmd.Mode == "external" {
-		executeExternalMode(serverURL, sessionId, cmd)
+		executeExternalMode(serverURL, sessionId, cmd, cancelChan)
 	} else {
 		updateSessionStatus(serverURL, sessionId, "Failed", "Invalid mode: "+cmd.Mode)
+		// Clean up for invalid mode
+		runningTests.Lock()
+		delete(runningTests.tests, sessionId)
+		runningTests.Unlock()
 	}
 }
 
-func executeServerMode(serverURL string, sessionId string, cmd TestCommand) {
+func executeServerMode(serverURL string, sessionId string, cmd TestCommand, cancelChan chan struct{}) {
+	// Acquire server test mutex to prevent overlapping server tests on the same port
+	// This is critical when multiple agents run on the same machine
+	serverTestMutex.Lock()
+	defer func() {
+		// Give OS extra time to fully release the port after cleanup
+		time.Sleep(200 * time.Millisecond)
+		serverTestMutex.Unlock()
+	}()
+	
 	// Start ethr server
 	ui.printMsg("Starting server on port %d (server mode runs indefinitely)", cmd.Port)
 	
@@ -973,7 +1027,7 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand) {
 		Source:    "server",
 		Type:      "status",
 		Protocol:  cmd.Protocol,
-		Metadata:  map[string]interface{}{"status": "listening", "port": cmd.Port},
+		Metadata:  map[string]interface{}{"status": "starting", "port": cmd.Port},
 	}, false)
 	
 	// Set up callback to receive stats from ethr's stats system
@@ -1117,17 +1171,78 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand) {
 		sendResult(serverURL, sessionId, result, false)
 	}
 	
-	// Start the actual ethr server
+	// Start the actual ethr server in a goroutine
 	// This will automatically use our callback for stats reporting
 	serverParam := ethrServerParam{
 		showUI:    false,
 		oneClient: false,
 	}
 	
-	runServer(serverParam)
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- runServer(serverParam)
+	}()
 	
-	// Clean up callback when server exits
-	hubStatsCallback = nil
+	// Wait for either server completion or cancellation
+	select {
+	case err := <-serverDone:
+		hubStatsCallback = nil
+		if err != nil {
+			// Server failed to start or encountered an error
+			ui.printMsg("Server failed: %v", err)
+			sendResult(serverURL, sessionId, TestResult{
+				Timestamp: time.Now(),
+				Source:    "server",
+				Type:      "error",
+				Protocol:  cmd.Protocol,
+				Metadata:  map[string]interface{}{"error": err.Error(), "status": "failed"},
+			}, true) // Mark as final
+			updateSessionStatus(serverURL, sessionId, "Failed", err.Error())
+			return
+		}
+		// Server stopped gracefully (likely cancelled)
+		ui.printMsg("Server stopped")
+		sendResult(serverURL, sessionId, TestResult{
+			Timestamp: time.Now(),
+			Source:    "server",
+			Type:      "status",
+			Protocol:  cmd.Protocol,
+			Metadata:  map[string]interface{}{"status": "stopped"},
+		}, true)
+		updateSessionStatus(serverURL, sessionId, "Cancelled", "Server stopped")
+		
+	case <-cancelChan:
+		// Test was cancelled - signal server to stop
+		ui.printDbg("Cancelling server for session %s", sessionId)
+		if gServerCancelChan != nil {
+			close(gServerCancelChan)
+		}
+		
+		// Wait for server to actually stop (with timeout)
+		select {
+		case err := <-serverDone:
+			if err != nil && err.Error() != "TCP server error: accept tcp" {
+				ui.printMsg("Server stopped with error: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			ui.printMsg("Server stop timed out")
+		}
+		
+		hubStatsCallback = nil
+		sendResult(serverURL, sessionId, TestResult{
+			Timestamp: time.Now(),
+			Source:    "server",
+			Type:      "status",
+			Protocol:  cmd.Protocol,
+			Metadata:  map[string]interface{}{"status": "cancelled"},
+		}, true)
+		updateSessionStatus(serverURL, sessionId, "Cancelled", "Test cancelled by user")
+	}
+	
+	// Clean up from running tests map
+	runningTests.Lock()
+	delete(runningTests.tests, sessionId)
+	runningTests.Unlock()
 }
 
 // Helper function to build test parameters for display
@@ -1185,7 +1300,7 @@ func buildTestParams(cmd TestCommand, protocol EthrProtocol, testType EthrTestTy
 	}
 }
 
-func executeClientMode(serverURL string, sessionId string, cmd TestCommand) {
+func executeClientMode(serverURL string, sessionId string, cmd TestCommand, cancelChan chan struct{}) {
 	// Start ethr client
 	ui.printMsg("Starting client test to %s:%d", cmd.Destination, cmd.Port)
 	
@@ -1277,6 +1392,11 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand) {
 			}
 			hubStatsCallback = nil
 			ui.printDbg("Test cleanup completed for session %s", sessionId)
+			
+			// Remove from running tests map
+			runningTests.Lock()
+			delete(runningTests.tests, sessionId)
+			runningTests.Unlock()
 		}()
 		
 		// Don't call initClient() as it tries to create log files
@@ -1363,13 +1483,44 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand) {
 		// Mark test as started (for defer cleanup and summary)
 		testStarted = true
 		
-		// Run the test (this blocks until test completes)
-		// Summary will be sent by defer when this completes
-		runTest(test)
+		// Run the test in a goroutine so we can monitor for cancellation
+		testDone := make(chan struct{})
+		go func() {
+			runTest(test)
+			close(testDone)
+		}()
+		
+		// Wait for either test completion or cancellation
+		select {
+		case <-testDone:
+			// Test completed normally
+			ui.printMsg("Client test completed for session %s", sessionId)
+		case <-cancelChan:
+			// Test was cancelled - stop it
+			ui.printDbg("Cancelling client test for session %s", sessionId)
+			test.isActive = false
+			// Close all connections to force the test to stop
+			test.connListDo(func(ec *ethrConn) {
+				if ec.conn != nil {
+					ec.conn.Close()
+				}
+			})
+			// Close control channel if it exists
+			if test.ctrlConn != nil {
+				test.ctrlConn.Close()
+			}
+			// Wait a moment for test to wind down
+			select {
+			case <-testDone:
+			case <-time.After(2 * time.Second):
+				ui.printDbg("Client test cancellation timed out")
+			}
+			updateSessionStatus(serverURL, sessionId, "Cancelled", "Test cancelled by user")
+		}
 	}()
 }
 
-func executeExternalMode(serverURL string, sessionId string, cmd TestCommand) {
+func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, cancelChan chan struct{}) {
 	// External mode: Run ping, traceroute, or mytraceroute against any destination
 	ui.printMsg("Starting external test (%s) to %s:%d", cmd.TestType, cmd.Destination, cmd.Port)
 	
@@ -1514,10 +1665,47 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand) {
 			intervalCounter++
 		}
 		
-		// Run the test (this blocks until test completes)
-		// Summary will be sent by defer when this completes
-		runTest(test)
+		// Run the test in a goroutine so we can monitor for cancellation
+		testDone := make(chan struct{})
+		go func() {
+			runTest(test)
+			close(testDone)
+		}()
+		
+		// Wait for either test completion or cancellation
+		select {
+		case <-testDone:
+			// Test completed normally
+			ui.printMsg("External test completed for session %s", sessionId)
+		case <-cancelChan:
+			// Test was cancelled - stop it
+			ui.printDbg("Cancelling external test for session %s", sessionId)
+			test.isActive = false
+			// Close all connections to force the test to stop
+			test.connListDo(func(ec *ethrConn) {
+				if ec.conn != nil {
+					ec.conn.Close()
+				}
+			})
+			// Close control channel if it exists
+			if test.ctrlConn != nil {
+				test.ctrlConn.Close()
+			}
+			// Wait a moment for test to wind down
+			select {
+			case <-testDone:
+			case <-time.After(2 * time.Second):
+				ui.printDbg("External test cancellation timed out")
+			}
+			updateSessionStatus(serverURL, sessionId, "Cancelled", "Test cancelled by user")
+		}
+		
 		hubStatsCallback = nil
+		
+		// Clean up from running tests map
+		runningTests.Lock()
+		delete(runningTests.tests, sessionId)
+		runningTests.Unlock()
 	}()
 }
 

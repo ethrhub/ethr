@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -15,10 +16,13 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
 var gCert []byte
+var gServerCancelChan chan struct{} // Channel to signal server shutdown
+var gUDPListener *net.UDPConn      // UDP listener for cleanup on shutdown
 
 // Per-session stats for multi-client support
 // Each client gets a unique sessionID, and we track stats independently
@@ -144,6 +148,21 @@ func initServer(showUI bool) {
 }
 
 func finiServer() {
+	// Close UDP listener if it's open
+	if gUDPListener != nil {
+		ui.printDbg("Closing UDP listener on port %d", gEthrPort)
+		err := gUDPListener.Close()
+		if err != nil {
+			ui.printDbg("Error closing UDP listener: %v", err)
+		} else {
+			ui.printDbg("UDP listener closed successfully")
+		}
+		gUDPListener = nil
+		// Give OS time to release the port
+		time.Sleep(100 * time.Millisecond)
+	} else {
+		ui.printDbg("UDP listener is nil, nothing to close")
+	}
 	ui.fini()
 	logFini()
 }
@@ -160,7 +179,13 @@ func showAcceptedIPVersion() {
 
 var gOneClient bool
 
-func runServer(serverParam ethrServerParam) {
+func runServer(serverParam ethrServerParam) error {
+	// Initialize cancel channel
+	gServerCancelChan = make(chan struct{})
+	defer func() {
+		gServerCancelChan = nil
+	}()
+	
 	gOneClient = serverParam.oneClient
 	defer stopStatsTimer()
 	initServer(serverParam.showUI)
@@ -174,12 +199,36 @@ func runServer(serverParam ethrServerParam) {
 		ui.printMsg("Running in single-client mode (one-off)")
 	}
 	ui.printMsg("Listening on port %d for TCP & UDP", gEthrPort)
-	srvrRunUDPServer()
-	err := srvrRunTCPServer()
+	
+	// Start UDP server (returns immediately after starting goroutines, or error if can't bind)
+	err := srvrRunUDPServer()
 	if err != nil {
 		finiServer()
-		fmt.Printf("Fatal error running TCP server: %v\n", err)
-		os.Exit(1)
+		fmt.Printf("Error running UDP server: %v\n", err)
+		return fmt.Errorf("UDP server error: %w", err)
+	}
+	
+	// Start TCP server in goroutine so we can monitor for cancellation
+	tcpErrChan := make(chan error, 1)
+	go func() {
+		tcpErrChan <- srvrRunTCPServer()
+	}()
+	
+	// Wait for either TCP server to fail or cancel signal
+	select {
+	case err := <-tcpErrChan:
+		finiServer()
+		fmt.Printf("Error running TCP server: %v\n", err)
+		return fmt.Errorf("TCP server error: %w", err)
+	case <-gServerCancelChan:
+		// Immediately close UDP listener when cancelled
+		if gUDPListener != nil {
+			ui.printDbg("Closing UDP listener on port %d", gEthrPort)
+			gUDPListener.Close()
+		}
+		finiServer()
+		ui.printDbg("Server cancelled")
+		return nil
 	}
 }
 
@@ -426,41 +475,74 @@ func srvrRunTCPServer() error {
 	
 	// Start a cleanup goroutine for idle TCP tests (similar to UDP)
 	// This is needed for CPS tests where connection handlers don't sleep
+	cleanupDone := make(chan struct{})
 	go func() {
+		defer close(cleanupDone)
 		for {
-			time.Sleep(500 * time.Millisecond)
-			gSessionLock.Lock()
-			for sessionKey, session := range gSessions {
-				for testKey, test := range session.tests {
-					// Skip tests with control channel - they use deterministic start/end signaling
-					if test.ctrlConn != nil {
-						continue
-					}
-					
-					// Delete TCP tests that have been inactive for > 1.2 seconds
-					// This handles cleanup for CPS tests with minimal extra output (non-control-channel mode only)
-					if testKey.Protocol == TCP && time.Since(test.lastAccess) > (1200 * time.Millisecond) {
-						ui.printDbg("Cleaning up idle TCP test: %v", testKey)
-						delete(session.tests, testKey)
-						session.testCount--
-						if session.testCount == 0 {
-							delete(gSessions, sessionKey)
-							deleteKey(sessionKey)
+			select {
+			case <-gServerCancelChan:
+				return
+			case <-time.After(500 * time.Millisecond):
+				gSessionLock.Lock()
+				for sessionKey, session := range gSessions {
+					for testKey, test := range session.tests {
+						// Skip tests with control channel - they use deterministic start/end signaling
+						if test.ctrlConn != nil {
+							continue
+						}
+						
+						// Delete TCP tests that have been inactive for > 1.2 seconds
+						// This handles cleanup for CPS tests with minimal extra output (non-control-channel mode only)
+						if testKey.Protocol == TCP && time.Since(test.lastAccess) > (1200 * time.Millisecond) {
+							ui.printDbg("Cleaning up idle TCP test: %v", testKey)
+							delete(session.tests, testKey)
+							session.testCount--
+							if session.testCount == 0 {
+								delete(gSessions, sessionKey)
+								deleteKey(sessionKey)
+							}
 						}
 					}
 				}
+				gSessionLock.Unlock()
 			}
-			gSessionLock.Unlock()
+		}
+	}()
+	
+	// Use a channel to signal when Accept returns
+	acceptChan := make(chan net.Conn)
+	acceptErrChan := make(chan error, 1)
+	
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				acceptErrChan <- err
+				return
+			}
+			acceptChan <- conn
 		}
 	}()
 	
 	for {
-		conn, err := l.Accept()
-		if err != nil {
-			ui.printErr("Error accepting new TCP connection: %v", err)
-			continue
+		select {
+		case <-gServerCancelChan:
+			l.Close() // This will cause Accept to return with error
+			<-cleanupDone // Wait for cleanup goroutine
+			return nil
+		case err := <-acceptErrChan:
+			// Check if this is due to cancellation
+			select {
+			case <-gServerCancelChan:
+				<-cleanupDone
+				return nil
+			default:
+				ui.printErr("Error accepting new TCP connection: %v", err)
+				return err
+			}
+		case conn := <-acceptChan:
+			go srvrHandleNewTcpConn(conn)
 		}
-		go srvrHandleNewTcpConn(conn)
 	}
 }
 
@@ -762,16 +844,32 @@ func srvrRunTCPLatencyTest(test *ethrTest, clientParam EthrClientParam, conn net
 }
 
 func srvrRunUDPServer() error {
-	udpAddr, err := net.ResolveUDPAddr(Udp(), gLocalIP+":"+gEthrPortStr)
-	if err != nil {
-		ui.printDbg("Unable to resolve UDP address: %v", err)
-		return err
+	// Use ListenConfig to set SO_REUSEADDR for faster port reuse after close
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var opErr error
+			err := c.Control(func(fd uintptr) {
+				// Set SO_REUSEADDR to allow binding to a port in TIME_WAIT state
+				opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			})
+			if err != nil {
+				return err
+			}
+			return opErr
+		},
 	}
-	l, err := net.ListenUDP(Udp(), udpAddr)
+	
+	conn, err := lc.ListenPacket(context.Background(), Udp(), gLocalIP+":"+gEthrPortStr)
 	if err != nil {
 		ui.printDbg("Error listening on %s for UDP pkt/s tests: %v", gEthrPortStr, err)
 		return err
 	}
+	
+	l := conn.(*net.UDPConn)
+	
+	// Store listener globally for cleanup on cancellation
+	gUDPListener = l
+	
 	ui.printDbg("UDP server listening on: %s", l.LocalAddr().String())
 	ui.printDbg("NOTE: If clients send large UDP packets (>MTU), fragmentation may cause packet loss.")
 	ui.printDbg("Virtual networks (WSL, VMs, VPNs) often drop fragmented UDP. Advise clients to use: -l 1400")
