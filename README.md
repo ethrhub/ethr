@@ -285,7 +285,17 @@ In this mode, Ethr client can only talk to an Ethr server.
 		Use specified number of iterations for warmup.
 		Default: 1
 	-T <string>
-		Use the given title in log files for logging results.
+		╔═══════════════════════════════════════════════════════════╗
+		║  IMPORTANT: Agent Display Title (UI Identifier)          ║
+		╠═══════════════════════════════════════════════════════════╣
+		║  This title appears as a BADGE next to the hostname in   ║
+		║  the YugaPerf dashboard UI. Use it to identify and       ║
+		║  differentiate between multiple agent instances.         ║
+		║                                                           ║
+		║  Example: -T "prod-west" or -T "test-env-1"             ║
+		║                                                           ║
+		║  The title is also used in log files for logging results.║
+		╚═══════════════════════════════════════════════════════════╝
 		Default: <empty>		
 ```
 ### External Mode Parameters

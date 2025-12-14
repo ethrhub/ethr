@@ -625,6 +625,23 @@ func printIPUsage() {
 }
 
 func printTitleUsage() {
+	fmt.Println("╔═══════════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  IMPORTANT: Agent Display Title (UI Identifier)                  ║")
+	fmt.Println("╠═══════════════════════════════════════════════════════════════════╣")
+	fmt.Println("║  -T <string>                                                      ║")
+	fmt.Println("║                                                                   ║")
+	fmt.Println("║  This title appears as a BADGE next to your hostname in the      ║")
+	fmt.Println("║  YugaPerf dashboard UI. Use it to identify and differentiate     ║")
+	fmt.Println("║  between multiple agent instances running on different systems.  ║")
+	fmt.Println("║                                                                   ║")
+	fmt.Println("║  Examples:                                                        ║")
+	fmt.Println("║    ethr -hub http://localhost:5284 -T \"production-west\"        ║")
+	fmt.Println("║    ethr -hub http://localhost:5284 -T \"test-env-1\"            ║")
+	fmt.Println("║    ethr -hub http://localhost:5284 -T \"staging-server\"        ║")
+	fmt.Println("║                                                                   ║")
+	fmt.Println("║  The title is also used in log files for logging results.        ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════════╝")
+	fmt.Println()
 	printFlagUsage("T", "<string>",
 		"Use the given title in log files for logging results.",
 		"Default: <empty>")
