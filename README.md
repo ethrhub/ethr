@@ -1,6 +1,8 @@
-# Ethr [![Build Status](https://travis-ci.org/Microsoft/ethr.svg?branch=master)](https://travis-ci.org/Microsoft/ethr)
+# Ethr
 
 Ethr is a cross platform network performance measurement tool written in golang. The goal of this project is to provide a native tool for comprehensive network performance measurements of bandwidth, connections/s, packets/s, latency, loss & jitter, across multiple protocols such as TCP, UDP, HTTP, HTTPS, and across multiple platforms such as Windows, Linux and other Unix systems.
+
+**Built by EthrHub team | Based on original Ethr by Microsoft**
 
 <p align="center">
   <img alt="Ethr server in action" src="https://user-images.githubusercontent.com/44273634/49815752-506f0000-fd21-11e8-954e-d587e79c5d85.png">
@@ -14,92 +16,55 @@ Ethr is natively cross platform, thanks to golang, as compared to compiling via 
 
 # Installation
 
-## Download
+## Download Pre-built Binaries (Recommended)
 
-https://github.com/Microsoft/ethr/releases/latest
+Visit the [latest release page](https://github.com/ethrhub/ethr/releases/latest) and download the appropriate binary for your platform:
 
-**Linux**
-```
-wget https://github.com/microsoft/ethr/releases/latest/download/ethr_linux.zip
-unzip ethr_linux.zip
-```
-
-**Windows Powershell**
-```
-wget https://github.com/microsoft/ethr/releases/latest/download/ethr_windows.zip -OutFile ethr_windows.zip
-Expand-Archive .\ethr_windows.zip -DestinationPath .
+**Linux (x64)**
+```bash
+wget https://github.com/ethrhub/ethr/releases/latest/download/ethr_linux_amd64.zip
+unzip ethr_linux_amd64.zip
+chmod +x ethr
 ```
 
-**OSX**
+**Linux (ARM64)**
+```bash
+wget https://github.com/ethrhub/ethr/releases/latest/download/ethr_linux_arm64.zip
+unzip ethr_linux_arm64.zip
+chmod +x ethr
 ```
-wget https://github.com/microsoft/ethr/releases/latest/download/ethr_osx.zip
-unzip ethr_osx.zip
+
+**macOS (Intel)**
+```bash
+curl -L https://github.com/ethrhub/ethr/releases/latest/download/ethr_darwin_amd64.zip -o ethr_darwin_amd64.zip
+unzip ethr_darwin_amd64.zip
+chmod +x ethr
+```
+
+**macOS (Apple Silicon)**
+```bash
+curl -L https://github.com/ethrhub/ethr/releases/latest/download/ethr_darwin_arm64.zip -o ethr_darwin_arm64.zip
+unzip ethr_darwin_arm64.zip
+chmod +x ethr
+```
+
+**Windows (PowerShell)**
+```powershell
+Invoke-WebRequest -Uri "https://github.com/ethrhub/ethr/releases/latest/download/ethr_windows_amd64.zip" -OutFile "ethr_windows_amd64.zip"
+Expand-Archive .\ethr_windows_amd64.zip -DestinationPath .
 ```
 
 ## Building from Source
 
-Note: go version 1.11 or higher is required building it from the source.
+**Requirements:** Go version 1.11 or higher
 
-We use go-module to manage Ethr dependencies. for more information please check [how to use go-modules!](https://github.com/golang/go/wiki/Modules#how-to-use-modules)
-
-```
-git clone https://github.com/Microsoft/ethr.git
+```bash
+git clone https://github.com/ethrhub/ethr.git
 cd ethr
 go build
 ```
 
 If ethr is cloned inside of the `$GOPATH/src` tree, please make sure you invoke the `go` command with `GO111MODULE=on`!
-
-## Docker
-
-Build image using command: 
-```
-docker build -t microsoft/ethr .
-```
-
-Make binary:
-
-**Linux**
-```
-docker run -e GOOS=linux -v $(pwd):/out microsoft/ethr make build-docker
-```
-
-**Windows**
-
-```
-docker run -e BINARY_NAME=ethr.exe -e GOOS=windows -v $(pwd):/out microsoft/ethr make build-docker
-```
-
-**OS X**
-```
-docker run -e BINARY_NAME=ethr -e GOOS=darwin -v $(pwd):/out microsoft/ethr make build-docker
-```
-
-## Using go get
-
-```
-go get github.com/microsoft/ethr
-```
-
-## Using ArchLinux AUR
-
-Assuming you are using [`yay`](https://aur.archlinux.org/packages/yay/) (https://github.com/Jguer/yay):
-
-```
-yay -S ethr
-```
-# Publishing Nuget package
-Follow the topic Building from Source to build ethr.exe
-
-Modify ethr.nuspec to add new release version
-```
-vim ethr.nuspec
-```
-Create a nuget package(like Ethr.0.2.1.nupkg)
-```
-nuget.exe pack ethr.nuspec
-```
-Upload the package to nuget.org.
 
 # Usage
 
