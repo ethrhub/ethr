@@ -28,32 +28,39 @@ This repository uses GitHub Actions for continuous integration and automated rel
 
 ## Creating a Release
 
-To create a new release:
+### Using the release script (Recommended)
 
-### Method 1: Using the release script (Recommended)
+The `release.sh` script is **interactive by default**. Just run it without any arguments:
 
-#### Interactive mode (shows all previous versions):
 ```bash
 ./release.sh
 ```
 
-#### Specify version directly:
+This will show you:
+- All existing versions
+- Current `latest` tag
+- An interactive menu to create releases or manage the latest tag
+
+#### Non-interactive usage:
+
 ```bash
+# Create a release
 ./release.sh 1.0.0
+
+# Create a release and set as latest
+./release.sh 1.0.0 --latest
+
+# Just update the latest tag (no new release)
+./release.sh --set-latest 1.0.0
+
+# List versions and exit
+./release.sh --list
+
+# Show help
+./release.sh --help
 ```
 
-#### Create release AND set as latest:
-```bash
-./release.sh 1.0.0 --set-latest
-```
-
-The script will:
-- Show existing versions for reference
-- Validate the version doesn't already exist
-- Create and push the version tag
-- Optionally update the `latest` tag
-
-### Method 2: Manual process
+### Method 2: Manual process (without script)
 
 #### 1. Update version (optional)
 If you have a version file or want to update documentation, do it now.
@@ -87,17 +94,21 @@ git push origin v1.0.0
 
 The `latest` tag is what users reference when downloading the most recent stable version. You have full control over which release is marked as "latest".
 
-### Set a version as latest:
+### Using the interactive script:
 
-#### Using the script (Recommended):
+```bash
+./release.sh
+# Choose option 2: "Update the 'latest' tag"
+```
+
+### Using command-line arguments:
+
 ```bash
 # Interactive - shows all versions and prompts you to choose
-./set-latest.sh
+./release.sh --set-latest
 
 # Specify version directly
-./set-latest.sh v1.0.0
-# or
-./set-latest.sh 1.0.0
+./release.sh --set-latest 1.0.0
 ```
 
 #### Manual process:
