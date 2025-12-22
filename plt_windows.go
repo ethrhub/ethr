@@ -1,10 +1,11 @@
+//go:build windows
 // +build windows
 
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Copyright (C) Microsoft. All rights reserved.
 // Licensed under the MIT license.
 // See LICENSE.txt file in the project root for full license information.
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 package main
 
 import (
@@ -30,7 +31,7 @@ var (
 	proc_delete_menu           = user32.NewProc("DeleteMenu")
 
 	// Windows ICMP API for traceroute (doesn't require admin or firewall exceptions)
-	proc_icmp_create_file = iphlpapi.NewProc("IcmpCreateFile")
+	proc_icmp_create_file  = iphlpapi.NewProc("IcmpCreateFile")
 	proc_icmp_close_handle = iphlpapi.NewProc("IcmpCloseHandle")
 	proc_icmp_send_echo    = iphlpapi.NewProc("IcmpSendEcho")
 )
@@ -234,12 +235,12 @@ type ipOptionInfo struct {
 
 // ICMP_ECHO_REPLY structure returned by IcmpSendEcho
 type icmpEchoReply struct {
-	Address       uint32 // Replying address (in network byte order)
-	Status        uint32 // Reply IP_STATUS
-	RoundTripTime uint32 // RTT in milliseconds
-	DataSize      uint16 // Reply data size
-	Reserved      uint16 // Reserved for system use
-	Data          uintptr // Pointer to the reply data
+	Address       uint32       // Replying address (in network byte order)
+	Status        uint32       // Reply IP_STATUS
+	RoundTripTime uint32       // RTT in milliseconds
+	DataSize      uint16       // Reply data size
+	Reserved      uint16       // Reserved for system use
+	Data          uintptr      // Pointer to the reply data
 	Options       ipOptionInfo // Reply options
 }
 
@@ -325,7 +326,7 @@ func WinIcmpSendEcho(destIP string, ttl int, timeout uint32) (string, uint32, ui
 
 	// Parse reply
 	reply := (*icmpEchoReply)(unsafe.Pointer(&replyBuf[0]))
-	
+
 	// Convert address from network byte order to string
 	addrBytes := make([]byte, 4)
 	addrBytes[0] = byte(reply.Address)

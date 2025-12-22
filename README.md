@@ -18,6 +18,33 @@ Ethr is natively cross platform, thanks to golang, as compared to compiling via 
 
 ## Download Pre-built Binaries (Recommended)
 
+### Quick Install (Auto-detect OS)
+
+**Linux/macOS:**
+```bash
+curl -sSL https://raw.githubusercontent.com/ethrhub/ethr/master/install.sh | bash
+```
+
+Or manually:
+```bash
+# Detect OS and architecture, download and extract
+case "$(uname -s)_$(uname -m)" in
+  Linux_x86_64)   URL="https://github.com/ethrhub/ethr/releases/latest/download/ethr_linux_amd64.zip" ;;
+  Linux_aarch64)  URL="https://github.com/ethrhub/ethr/releases/latest/download/ethr_linux_arm64.zip" ;;
+  Darwin_x86_64)  URL="https://github.com/ethrhub/ethr/releases/latest/download/ethr_darwin_amd64.zip" ;;
+  Darwin_arm64)   URL="https://github.com/ethrhub/ethr/releases/latest/download/ethr_darwin_arm64.zip" ;;
+  *) echo "Unsupported OS/architecture"; exit 1 ;;
+esac
+curl -L "$URL" -o ethr.zip && unzip ethr.zip && rm ethr.zip && chmod +x ethr && echo "✓ ethr installed successfully"
+```
+
+**Windows (PowerShell):**
+```powershell
+Invoke-WebRequest -Uri "https://github.com/ethrhub/ethr/releases/latest/download/ethr_windows_amd64.zip" -OutFile "ethr.zip"; Expand-Archive -Force ethr.zip -DestinationPath .; Remove-Item ethr.zip; Write-Host "✓ ethr installed successfully"
+```
+
+### Manual Download by Platform
+
 Visit the [latest release page](https://github.com/ethrhub/ethr/releases/latest) and download the appropriate binary for your platform:
 
 **Linux (x64)**
@@ -69,6 +96,13 @@ If ethr is cloned inside of the `$GOPATH/src` tree, please make sure you invoke 
 # Usage
 
 ## Simple Usage
+
+Ethr supports four modes of operation:
+- **Server Mode** (`-s`): Run as a server to accept test connections
+- **Client Mode** (`-c`): Connect to an Ethr server for testing
+- **External Mode** (`-x`): Test external servers (non-Ethr) with limited tests
+- **Hub Mode** (`-hub`): Connect to a centralized hub for managed testing
+
 Help:
 ```
 ethr -h
@@ -87,6 +121,11 @@ ethr -s -ui
 Client:
 ```
 ethr -c <server ip>
+```
+
+Hub Agent:
+```
+ethr -hub <hub-url> -T <title>
 ```
 
 Examples:
@@ -125,6 +164,9 @@ sudo ./ethr -x www.github.com -p icmp -t mtr -d 0 -4
 
 // Measure packets/s over UDP by sending small 1-byte packets
 ./ethr -c 172.28.192.1 -p udp -t p -d 0
+
+// Connect to hub for centralized testing
+./ethr -hub http://localhost:5284 -T "production-west"
 ```
 
 ## Known Issues & Requirements
@@ -165,6 +207,7 @@ Run with `-debug` flag to see warnings about potential fragmentation issues.
 		Name of log file. By default, following file names are used:
 		Server mode: 'ethrs.log'
 		Client mode: 'ethrc.log'
+		Hub mode: 'ethrh.log'
 	-debug 
 		Enable debug information in logging output.
 	-4 
@@ -311,6 +354,31 @@ few types of measurements, such as Ping, Connections/s and TraceRoute.
 	-T <string>
 		Use the given title in log files for logging results.
 		Default: <empty>		
+```
+### Hub Mode Parameters
+```
+In this mode, Ethr connects to a hub (command center) via device authentication
+and awaits test commands. Tests are executed on demand and detailed results
+(including per-second statistics) are sent back to the hub for storage and
+analysis. This enables centralized control and monitoring of performance tests.
+	-hub <hub-url>
+		Run in hub mode and connect to <hub-url>.
+		Hub is specified as a URL (e.g., http://hub.example.com:5284).
+		Uses OAuth 2.0 device authentication flow for secure access.
+		Example: -hub "http://localhost:5284"
+	-T <string>
+		╔═══════════════════════════════════════════════════════════╗
+		║  IMPORTANT: Agent Display Title (UI Identifier)          ║
+		╠═══════════════════════════════════════════════════════════╣
+		║  This title appears as a BADGE next to the hostname in   ║
+		║  the EthrHub dashboard UI. Use it to identify and        ║
+		║  differentiate between multiple agent instances.         ║
+		║                                                           ║
+		║  Example: -T "prod-west" or -T "test-env-1"             ║
+		║                                                           ║
+		║  The title is also used in log files for logging results.║
+		╚═══════════════════════════════════════════════════════════╝
+		Default: <empty>
 ```
 
 # Status

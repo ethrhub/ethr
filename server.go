@@ -1,8 +1,8 @@
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Copyright (C) Microsoft. All rights reserved.
 // Licensed under the MIT license.
 // See LICENSE.txt file in the project root for full license information.
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 package main
 
 import (
@@ -22,7 +22,7 @@ import (
 
 var gCert []byte
 var gServerCancelChan chan struct{} // Channel to signal server shutdown
-var gUDPListener *net.UDPConn      // UDP listener for cleanup on shutdown
+var gUDPListener *net.UDPConn       // UDP listener for cleanup on shutdown
 
 // Per-session stats for multi-client support
 // Each client gets a unique sessionID, and we track stats independently
@@ -54,7 +54,7 @@ var gUDPPortOnlyToSessionLock sync.RWMutex
 func registerSessionStats(sessionID string, remoteIP string, udpPorts []int) *sessionStats {
 	gSessionStatsLock.Lock()
 	defer gSessionStatsLock.Unlock()
-	
+
 	stats := &sessionStats{
 		sessionID:  sessionID,
 		remoteIP:   remoteIP,
@@ -62,7 +62,7 @@ func registerSessionStats(sessionID string, remoteIP string, udpPorts []int) *se
 		lastAccess: time.Now(),
 	}
 	gSessionStats[sessionID] = stats
-	
+
 	// Register UDP port mappings (both IP:port and port-only for NAT scenarios)
 	gUDPPortToSessionLock.Lock()
 	for _, port := range udpPorts {
@@ -71,7 +71,7 @@ func registerSessionStats(sessionID string, remoteIP string, udpPorts []int) *se
 		ui.printDbg("Registered UDP port mapping: %s -> session %s", key, sessionID)
 	}
 	gUDPPortToSessionLock.Unlock()
-	
+
 	// Also register port-only mappings for NAT scenarios (e.g., WSL2 -> Windows)
 	// where UDP packets may arrive from a different IP than the TCP control channel
 	gUDPPortOnlyToSessionLock.Lock()
@@ -80,7 +80,7 @@ func registerSessionStats(sessionID string, remoteIP string, udpPorts []int) *se
 		ui.printDbg("Registered UDP port-only mapping: %d -> session %s", port, sessionID)
 	}
 	gUDPPortOnlyToSessionLock.Unlock()
-	
+
 	ui.printDbg("Registered session %s from %s with %d UDP ports", sessionID, remoteIP, len(udpPorts))
 	return stats
 }
@@ -99,21 +99,21 @@ func getSessionStatsByUDPAddr(remoteAddr string, port int) *sessionStats {
 	gUDPPortToSessionLock.RLock()
 	sessionID, found := gUDPPortToSession[remoteAddr]
 	gUDPPortToSessionLock.RUnlock()
-	
+
 	if found {
 		return getSessionStatsByID(sessionID)
 	}
-	
+
 	// Fall back to port-only lookup for NAT scenarios
 	gUDPPortOnlyToSessionLock.RLock()
 	sessionID, found = gUDPPortOnlyToSession[port]
 	gUDPPortOnlyToSessionLock.RUnlock()
-	
+
 	if found {
 		ui.printDbg("UDP packet matched via port-only lookup (NAT scenario): port %d -> session %s", port, sessionID)
 		return getSessionStatsByID(sessionID)
 	}
-	
+
 	return nil
 }
 
@@ -125,7 +125,7 @@ func unregisterSessionStats(sessionID string) {
 		delete(gSessionStats, sessionID)
 	}
 	gSessionStatsLock.Unlock()
-	
+
 	if found && stats != nil {
 		gUDPPortToSessionLock.Lock()
 		for _, port := range stats.udpPorts {
@@ -133,7 +133,7 @@ func unregisterSessionStats(sessionID string) {
 			delete(gUDPPortToSession, key)
 		}
 		gUDPPortToSessionLock.Unlock()
-		
+
 		gUDPPortOnlyToSessionLock.Lock()
 		for _, port := range stats.udpPorts {
 			delete(gUDPPortOnlyToSession, port)
@@ -185,7 +185,7 @@ func runServer(serverParam ethrServerParam) error {
 	defer func() {
 		gServerCancelChan = nil
 	}()
-	
+
 	gOneClient = serverParam.oneClient
 	defer stopStatsTimer()
 	initServer(serverParam.showUI)
@@ -199,7 +199,7 @@ func runServer(serverParam ethrServerParam) error {
 		ui.printMsg("Running in single-client mode (one-off)")
 	}
 	ui.printMsg("Listening on port %d for TCP & UDP", gEthrPort)
-	
+
 	// Start UDP server (returns immediately after starting goroutines, or error if can't bind)
 	err := srvrRunUDPServer()
 	if err != nil {
@@ -207,13 +207,13 @@ func runServer(serverParam ethrServerParam) error {
 		fmt.Printf("Error running UDP server: %v\n", err)
 		return fmt.Errorf("UDP server error: %w", err)
 	}
-	
+
 	// Start TCP server in goroutine so we can monitor for cancellation
 	tcpErrChan := make(chan error, 1)
 	go func() {
 		tcpErrChan <- srvrRunTCPServer()
 	}()
-	
+
 	// Wait for either TCP server to fail or cancel signal
 	select {
 	case err := <-tcpErrChan:
@@ -278,7 +278,7 @@ func handshakeWithClientSync(test *ethrTest, conn net.Conn) (testID EthrTestID, 
 	delayNs := getTimeToNextTick()
 	// Calculate the exact start time (next interval boundary)
 	startTime := time.Now().Add(time.Duration(delayNs))
-	
+
 	ethrMsg = createSyncReadyMsg(delayNs)
 	err = sendSessionMsg(conn, ethrMsg)
 	if err != nil {
@@ -309,12 +309,12 @@ func trySyncStartWithClient(test *ethrTest, conn net.Conn) (isControlChannel boo
 		// Return session ID to caller - DON'T store in shared test object!
 		if ethrMsg.CtrlStart != nil {
 			sessionID = ethrMsg.CtrlStart.SessionID
-			
+
 			// Register session stats for this session (for both TCP and UDP)
 			// This allows data connections to accumulate stats per session
 			server, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
 			registerSessionStats(sessionID, server, ethrMsg.CtrlStart.UDPPorts)
-			
+
 			// Reset startTime if this is a new session (different sessionID)
 			// This ensures each new test run behaves like a fresh start
 			// For multi-threaded tests with same sessionID, we keep the existing startTime
@@ -324,10 +324,10 @@ func trySyncStartWithClient(test *ethrTest, conn net.Conn) (isControlChannel boo
 			}
 		}
 		test.ctrlConn = conn
-		
+
 		// Mark test as active (not dormant) since control channel test is starting
 		test.isDormant = false
-		
+
 		isControlChannel = true
 
 		// Now wait for sync start message
@@ -416,21 +416,21 @@ func doTimeSync(test *ethrTest, conn net.Conn) (err error) {
 // This runs in a goroutine while the test is in progress
 func handleControlChannel(test *ethrTest, sessionID string, conn net.Conn) {
 	ui.printDbg("Control channel handler started for test: %v, sessionID: %s", test.testID, sessionID)
-	
+
 	// Clean up session stats when done
 	defer func() {
 		if sessionID != "" {
 			unregisterSessionStats(sessionID)
 		}
 	}()
-	
+
 	for {
 		ethrMsg := recvSessionMsg(conn)
 		if ethrMsg.Type == EthrInv {
 			// Connection closed or error - client disconnected unexpectedly
 			ui.printDbg("Control channel: received invalid/closed connection, clearing control channel and marking dormant")
 			test.isDormant = true
-			test.ctrlConn = nil  // Clear control connection so cleanup goroutine can remove this test
+			test.ctrlConn = nil // Clear control connection so cleanup goroutine can remove this test
 			return
 		}
 
@@ -438,7 +438,7 @@ func handleControlChannel(test *ethrTest, sessionID string, conn net.Conn) {
 		case EthrCtrlTestEnd:
 			// Mark test as dormant immediately to prevent stats from being printed
 			test.isDormant = true
-			
+
 			// Client signals test end - send our cumulative results
 			// For UDP with session tracking, use session stats; otherwise use test stats
 			var totalBw, totalPps uint64
@@ -472,7 +472,7 @@ func srvrRunTCPServer() error {
 		return err
 	}
 	defer l.Close()
-	
+
 	// Start a cleanup goroutine for idle TCP tests (similar to UDP)
 	// This is needed for CPS tests where connection handlers don't sleep
 	cleanupDone := make(chan struct{})
@@ -490,10 +490,10 @@ func srvrRunTCPServer() error {
 						if test.ctrlConn != nil {
 							continue
 						}
-						
+
 						// Delete TCP tests that have been inactive for > 1.2 seconds
 						// This handles cleanup for CPS tests with minimal extra output (non-control-channel mode only)
-						if testKey.Protocol == TCP && time.Since(test.lastAccess) > (1200 * time.Millisecond) {
+						if testKey.Protocol == TCP && time.Since(test.lastAccess) > (1200*time.Millisecond) {
 							ui.printDbg("Cleaning up idle TCP test: %v", testKey)
 							delete(session.tests, testKey)
 							session.testCount--
@@ -508,11 +508,11 @@ func srvrRunTCPServer() error {
 			}
 		}
 	}()
-	
+
 	// Use a channel to signal when Accept returns
 	acceptChan := make(chan net.Conn)
 	acceptErrChan := make(chan error, 1)
-	
+
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -523,11 +523,11 @@ func srvrRunTCPServer() error {
 			acceptChan <- conn
 		}
 	}()
-	
+
 	for {
 		select {
 		case <-gServerCancelChan:
-			l.Close() // This will cause Accept to return with error
+			l.Close()     // This will cause Accept to return with error
 			<-cleanupDone // Wait for cleanup goroutine
 			return nil
 		case err := <-acceptErrChan:
@@ -573,7 +573,7 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 	// Set a short timeout for handshake to detect CPS-only connections
 	// CPS test clients just open and close connections without sending any data
 	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-	
+
 	// First do the basic handshake to determine test type
 	testID, clientParam, sessionID, err := handshakeWithClient(test, conn)
 	if err != nil {
@@ -590,12 +590,12 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 		// Test cleanup happens via the idle test cleanup mechanism
 		return
 	}
-	
+
 	// Update test object with actual test type from client
 	// This allows proper reporting to hub/UI
 	test.testID = testID
 	test.clientParam = clientParam
-	
+
 	// This is NOT a pure CPS connection - it has a handshake
 	// Use deferred deletion with sleep for proper test lifecycle management
 	isCPSorPing := true
@@ -605,23 +605,23 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 		}
 		safeDeleteTest(test)
 	}()
-	
+
 	// Clear the deadline for subsequent operations
 	conn.SetReadDeadline(time.Time{})
-	
+
 	// Now we know this is NOT a pure CPS test - print connection info
 	ui.printDbg("New connection from %v, port %v to %v, port %v", server, port, lserver, lport)
 	if isNew {
 		ui.emitTestHdr(test)
 	}
-	
+
 	// Print client parameters received (only in debug mode)
 	if clientParam.NumThreads > 0 || clientParam.BufferSize > 0 || clientParam.Duration > 0 {
 		ui.printDbg("Client parameters - Threads: %d, BufferSize: %dKB, Duration: %ds, Reverse: %v, BwRate: %d",
-			clientParam.NumThreads, clientParam.BufferSize/1024, int(clientParam.Duration.Seconds()), 
+			clientParam.NumThreads, clientParam.BufferSize/1024, int(clientParam.Duration.Seconds()),
 			clientParam.Reverse, clientParam.BwRate)
 	}
-	
+
 	isCPSorPing = false
 	if testID.Protocol == TCP {
 		if testID.Type == Bandwidth {
@@ -669,7 +669,7 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 		// This is a TCP control channel for UDP tests
 		// UDP tests benefit greatly from control channel to report received bandwidth/PPS
 		isCPSorPing = true // Use delayed deletion since UDP data comes separately
-		
+
 		// For multi-client support, we track UDP stats per client IP
 		// The UDP packets will arrive from the same IP but possibly different ports
 		// We use IP-only lookup since UDP "connection" uses a different source port than control channel
@@ -678,19 +678,19 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 			ui.printDbg("Failed to create UDP test for control channel")
 			return
 		}
-		
+
 		// For multi-client from same IP: DON'T reset totals here
 		// Each client's stats are added to the shared test object
 		// This means multi-client from same IP will see aggregate stats
 		// TODO: For true per-client tracking, embed session ID in UDP packets
-		
+
 		isCtrl, udpSessionID, err := trySyncStartWithClient(udpTest, conn)
 		if err != nil {
 			ui.printDbg("Failed to synchronize start time with UDP test client. Error: %v", err)
 			safeDeleteTest(udpTest)
 			return
 		}
-		
+
 		if isCtrl {
 			// Control channel mode - handleControlChannel runs in this goroutine
 			// to keep the connection open (defer conn.Close() would close it otherwise)
@@ -712,7 +712,7 @@ func srvrRunTCPBandwidthTestWithSession(test *ethrTest, clientParam EthrClientPa
 	// For control channel tests, this was already done in trySyncStartWithClient
 	// For non-control channel tests (-ncc mode), we need to activate here
 	test.isDormant = false
-	
+
 	// Look up session stats if sessionID is provided
 	var sessStats *sessionStats
 	if sessionID != "" {
@@ -724,7 +724,7 @@ func srvrRunTCPBandwidthTestWithSession(test *ethrTest, clientParam EthrClientPa
 			sessStats = registerSessionStats(sessionID, server, nil)
 		}
 	}
-	
+
 	size := clientParam.BufferSize
 	buff := make([]byte, size)
 	for i := uint32(0); i < size; i++ {
@@ -734,10 +734,10 @@ func srvrRunTCPBandwidthTestWithSession(test *ethrTest, clientParam EthrClientPa
 	totalBytesToSend := test.clientParam.BwRate
 	sentBytes := uint64(0)
 	start, waitTime, bytesToSend := beginThrottle(totalBytesToSend, bufferLen)
-	
+
 	// Update lastAccess periodically to prevent cleanup goroutine from marking test dormant
 	lastAccessUpdate := time.Now()
-	
+
 	for {
 		n := 0
 		var err error
@@ -753,19 +753,19 @@ func srvrRunTCPBandwidthTestWithSession(test *ethrTest, clientParam EthrClientPa
 		// Always update test stats (for UI display)
 		atomic.AddUint64(&test.testResult.bw, uint64(n))
 		atomic.AddUint64(&test.testResult.totalBw, uint64(n))
-		
+
 		// Also update session stats if in multi-client mode
 		if sessStats != nil {
 			atomic.AddUint64(&sessStats.bw, uint64(n))
 			atomic.AddUint64(&sessStats.totalBw, uint64(n))
 		}
-		
+
 		// Periodically update lastAccess to keep test active (every ~100ms)
 		if time.Since(lastAccessUpdate) > (100 * time.Millisecond) {
 			test.lastAccess = time.Now()
 			lastAccessUpdate = time.Now()
 		}
-		
+
 		if clientParam.Reverse {
 			sentBytes += uint64(n)
 			start, waitTime, sentBytes, bytesToSend = enforceThrottle(start, waitTime, totalBytesToSend, sentBytes, bufferLen)
@@ -776,24 +776,24 @@ func srvrRunTCPBandwidthTestWithSession(test *ethrTest, clientParam EthrClientPa
 func srvrRunTCPLatencyTest(test *ethrTest, clientParam EthrClientParam, conn net.Conn) {
 	// Activate the test when connection starts
 	test.isDormant = false
-	
+
 	bytes := make([]byte, clientParam.BufferSize)
 	rttCount := clientParam.RttCount
 	latencyNumbers := make([]time.Duration, rttCount)
-	
+
 	// Update lastAccess to keep test active
 	test.lastAccess = time.Now()
-	
+
 	for {
 		_, err := io.ReadFull(conn, bytes)
 		if err != nil {
 			ui.printDbg("Error receiving data for latency test: %v", err)
 			return
 		}
-		
+
 		// Update lastAccess periodically
 		test.lastAccess = time.Now()
-		
+
 		for i := uint32(0); i < rttCount; i++ {
 			s1 := time.Now()
 			_, err = conn.Write(bytes)
@@ -858,18 +858,18 @@ func srvrRunUDPServer() error {
 			return opErr
 		},
 	}
-	
+
 	conn, err := lc.ListenPacket(context.Background(), Udp(), gLocalIP+":"+gEthrPortStr)
 	if err != nil {
 		ui.printDbg("Error listening on %s for UDP pkt/s tests: %v", gEthrPortStr, err)
 		return err
 	}
-	
+
 	l := conn.(*net.UDPConn)
-	
+
 	// Store listener globally for cleanup on cancellation
 	gUDPListener = l
-	
+
 	ui.printDbg("UDP server listening on: %s", l.LocalAddr().String())
 	ui.printDbg("NOTE: If clients send large UDP packets (>MTU), fragmentation may cause packet loss.")
 	ui.printDbg("Virtual networks (WSL, VMs, VPNs) often drop fragmented UDP. Advise clients to use: -l 1400")
@@ -911,7 +911,7 @@ func srvrRunUDPPacketHandler(conn *net.UDPConn) {
 				if v.ctrlConn != nil {
 					continue
 				}
-				
+
 				// At 200ms of no activity, mark the test in-active so stats stop
 				// printing (only for non-control-channel tests).
 				if time.Since(v.lastAccess) > (200 * time.Millisecond) {
@@ -939,7 +939,7 @@ func srvrRunUDPPacketHandler(conn *net.UDPConn) {
 		server, portStr, _ := net.SplitHostPort(remoteIP.String())
 		portNum, _ := strconv.Atoi(portStr)
 		remoteAddrStr := remoteIP.String()
-		
+
 		// Try to look up session stats by IP:port first, then fall back to port-only
 		sessionStatsPtr := getSessionStatsByUDPAddr(remoteAddrStr, portNum)
 		if sessionStatsPtr != nil {
@@ -949,7 +949,7 @@ func srvrRunUDPPacketHandler(conn *net.UDPConn) {
 			atomic.AddUint64(&sessionStatsPtr.bw, uint64(n))
 			atomic.AddUint64(&sessionStatsPtr.totalPps, 1)
 			atomic.AddUint64(&sessionStatsPtr.totalBw, uint64(n))
-			
+
 			// Also update the test object for UI display (using IP lookup)
 			test, found := tests[server]
 			if !found {
@@ -972,7 +972,7 @@ func srvrRunUDPPacketHandler(conn *net.UDPConn) {
 			}
 			continue
 		}
-		
+
 		// No session match found - accept traffic anyway and track by IP
 		// This handles NAT scenarios and -ncc (no control channel) mode
 		ui.printDbg("UDP packet from %s:%s - no session match, using IP-based tracking", server, portStr)
