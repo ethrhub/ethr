@@ -1129,13 +1129,25 @@ func tcpRunPing(test *ethrTest, prefix string) (timeTaken time.Duration, err err
 	conn, err := ethrDial(TCP, test.dialAddr)
 	if err != nil {
 		ui.printMsg("[tcp] %sConnection to %s: Timed out (%v)", prefix, test.dialAddr, err)
+		// Send failed ping to hub callback
+		if hubPingCallback != nil && hubActiveTest != nil && prefix == "" {
+			hubPingCallback("", test.dialAddr, TCP, 0, err, hubActiveTest)
+		}
 		return
 	}
 	timeTaken = time.Since(t0)
 	rserver, rport, _ := net.SplitHostPort(conn.RemoteAddr().String())
 	lserver, lport, _ := net.SplitHostPort(conn.LocalAddr().String())
-	ui.printMsg("[tcp] %sConnection from [%s]:%s to [%s]:%s, Time: %s",
-		prefix, lserver, lport, rserver, rport, durationToString(timeTaken))
+	localAddr := fmt.Sprintf("[%s]:%s", lserver, lport)
+	remoteAddr := fmt.Sprintf("[%s]:%s", rserver, rport)
+	ui.printMsg("[tcp] %sConnection from %s to %s, Time: %s",
+		prefix, localAddr, remoteAddr, durationToString(timeTaken))
+	
+	// Send successful ping to hub callback (only for non-warmup pings)
+	if hubPingCallback != nil && hubActiveTest != nil && prefix == "" {
+		hubPingCallback(localAddr, remoteAddr, TCP, timeTaken, nil, hubActiveTest)
+	}
+	
 	tcpconn, ok := conn.(*net.TCPConn)
 	if ok {
 		tcpconn.SetLinger(0)
@@ -1309,15 +1321,29 @@ func icmpRunPing(test *ethrTest, prefix string) (time.Duration, error) {
 	err, isLast := icmpProbe(test, dstIPAddr, time.Second, "", &hopData, 254, 255)
 	if err != nil {
 		ui.printMsg("[icmp] %sPing to %s: %v", prefix, test.dialAddr, err)
+		// Send failed ping to hub callback
+		if hubPingCallback != nil && hubActiveTest != nil && prefix == "" {
+			hubPingCallback("", test.dialAddr, ICMP, 0, err, hubActiveTest)
+		}
 		return time.Second, err
 	}
 	if !isLast {
 		ui.printMsg("[icmp] %sPing to %s: %s",
 			prefix, test.dialAddr, "Non-EchoReply Received.")
+		// Send failed ping to hub callback
+		if hubPingCallback != nil && hubActiveTest != nil && prefix == "" {
+			hubPingCallback("", test.dialAddr, ICMP, 0, os.ErrNotExist, hubActiveTest)
+		}
 		return time.Second, os.ErrNotExist
 	}
 	ui.printMsg("[icmp] %sPing to %s: %s",
 		prefix, test.dialAddr, durationToString(hopData.last))
+	
+	// Send successful ping to hub callback (only for non-warmup pings)
+	if hubPingCallback != nil && hubActiveTest != nil && prefix == "" {
+		hubPingCallback("", test.dialAddr, ICMP, hopData.last, nil, hubActiveTest)
+	}
+	
 	return hopData.last, nil
 }
 

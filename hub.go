@@ -1329,6 +1329,7 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 	select {
 	case err := <-serverDone:
 		hubStatsCallback = nil
+		hubPingCallback = nil
 		if err != nil {
 			// Server failed to start or encountered an error
 			ui.printMsg("Server failed: %v", err)
@@ -1371,6 +1372,7 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 		}
 
 		hubStatsCallback = nil
+		hubPingCallback = nil
 		sendResult(serverURL, sessionId, TestResult{
 			Timestamp: time.Now(),
 			Source:    "server",
@@ -1582,6 +1584,7 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 				deleteTest(test)
 			}
 			hubStatsCallback = nil
+			hubPingCallback = nil
 			hubActiveTest = nil
 			ui.printDbg("Test cleanup completed for session %s", sessionId)
 
@@ -2092,6 +2095,40 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 			intervalCounter++
 		}
 
+		// Set up individual ping callback for external ping tests
+		var pingSequence int = 1
+		hubPingCallback = func(localAddr, remoteAddr string, proto EthrProtocol, latency time.Duration, pingErr error, test *ethrTest) {
+			if !test.isActive {
+				return
+			}
+
+			result := TestResult{
+				Timestamp:  time.Now(),
+				Source:     "external",
+				Protocol:   cmd.Protocol,
+				Type:       "ping_result",
+				TestParams: testParams,
+			}
+
+			latencyMs := float64(latency.Microseconds()) / 1000.0
+			success := pingErr == nil
+
+			result.Metadata = map[string]interface{}{
+				"sequence":   pingSequence,
+				"localAddr":  localAddr,
+				"remoteAddr": remoteAddr,
+				"latencyMs":  latencyMs,
+				"success":    success,
+			}
+
+			if pingErr != nil {
+				result.Metadata["error"] = pingErr.Error()
+			}
+
+			sendResult(serverURL, sessionId, result, false)
+			pingSequence++
+		}
+
 		// Run the test in a goroutine so we can monitor for cancellation
 		testDone := make(chan struct{})
 		go func() {
@@ -2128,6 +2165,7 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 		}
 
 		hubStatsCallback = nil
+		hubPingCallback = nil
 		hubActiveTest = nil
 
 		// Clean up from running tests map

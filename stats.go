@@ -163,6 +163,9 @@ var lastStatsTime time.Time = time.Now()
 var hubStatsCallback func(remoteAddr string, proto EthrProtocol, testType EthrTestType,
 	bw, cps, pps uint64, latencyStats *LatencyStats, hops []ethrHopData, test *ethrTest)
 
+// Callback for individual ping results
+var hubPingCallback func(localAddr, remoteAddr string, proto EthrProtocol, latency time.Duration, err error, test *ethrTest)
+
 // Active test for hub mode - used by emitLatencyResults to find the test
 // when the test lookup by session fails (e.g., external mode)
 var hubActiveTest *ethrTest
