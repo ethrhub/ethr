@@ -1,8 +1,8 @@
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Copyright (C) Microsoft. All rights reserved.
 // Licensed under the MIT license.
 // See LICENSE.txt file in the project root for full license information.
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 package main
 
 import (
@@ -23,9 +23,7 @@ type ethrTestResultAggregate struct {
 
 var gAggregateTestResults = make(map[EthrProtocol]*ethrTestResultAggregate)
 
-//
 // Initialization functions.
-//
 func initServerUI(showUI bool) {
 	gAggregateTestResults[TCP] = &ethrTestResultAggregate{}
 	gAggregateTestResults[UDP] = &ethrTestResultAggregate{}
@@ -35,9 +33,7 @@ func initServerUI(showUI bool) {
 	}
 }
 
-//
 // Text based UI
-//
 type serverTui struct {
 	h, w                               int
 	resX, resY, resW                   int
@@ -291,9 +287,7 @@ func (u *serverTui) emitStats(netStats ethrNetStat) {
 	gCurNetStats = netStats
 }
 
-//
 // Simple command window based output
-//
 type serverCli struct {
 }
 
@@ -355,7 +349,7 @@ func (u *serverCli) emitTestResultEnd() {
 
 func (u *serverCli) emitTestHdr(test *ethrTest) {
 	s := []string{"RemoteAddress", "Proto", "Bits/s", "Conn/s", "Pkt/s", "Latency"}
-	
+
 	// Don't print detailed parameters for simple connection tracking
 	// (Parameters shown are empty for connection-based tests like CPS)
 	fmt.Println()
@@ -423,7 +417,7 @@ func getTestResults(s *ethrSession, proto EthrProtocol, seconds float64) []strin
 			// This interval covers [lastStatsTime - seconds, lastStatsTime]
 			// intervalStart is when this measurement period began
 			intervalStart := lastStatsTime.Add(-time.Duration(seconds * float64(time.Second)))
-			
+
 			// Skip if the test started after this interval began (test wasn't running for full interval)
 			// Use a small tolerance to handle the case where test starts exactly at interval boundary
 			tolerance := 10 * time.Millisecond
@@ -469,7 +463,7 @@ func getTestResults(s *ethrSession, proto EthrProtocol, seconds float64) []strin
 		if test.isDormant {
 			return []string{}
 		}
-		
+
 		// Skip printing if we have zero data across all metrics
 		// This happens when a new test starts but hasn't collected any data yet
 		// Exception: Print if we have latency data (for latency-only tests)
@@ -492,7 +486,7 @@ func getTestResults(s *ethrSession, proto EthrProtocol, seconds float64) []strin
 		if latTestOn {
 			latStr = durationToString(time.Duration(latency))
 		}
-		
+
 		// Call hub callback if registered (for hub integration mode)
 		if hubStatsCallback != nil {
 			// Determine which test type is active based on what metrics are available
@@ -506,7 +500,7 @@ func getTestResults(s *ethrSession, proto EthrProtocol, seconds float64) []strin
 			}
 			hubStatsCallback(s.remoteIP, proto, testType, bw, cps, pps, nil, nil, test)
 		}
-		
+
 		str := []string{s.remoteIP, protoToString(proto),
 			bwStr, cpsStr, ppsStr, latStr}
 		return str

@@ -1,8 +1,8 @@
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Copyright (C) Microsoft. All rights reserved.
 // Licensed under the MIT license.
 // See LICENSE.txt file in the project root for full license information.
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 package main
 
 import (
@@ -137,15 +137,15 @@ func startStatsTimerAt(startTime time.Time) {
 			// Calculate the exact target time for this interval
 			targetTime := startTime.Add(time.Duration(interval) * time.Second)
 			sleepDuration := time.Until(targetTime)
-			
+
 			if sleepDuration > 0 {
 				time.Sleep(sleepDuration)
 			}
-			
+
 			if !statsEnabled {
 				break
 			}
-			
+
 			emitStats()
 			interval++
 		}
@@ -160,19 +160,23 @@ var lastStatsTime time.Time = time.Now()
 
 // Callback for hub mode to receive stats
 // Extended signature to support all test types and detailed metrics
-var hubStatsCallback func(remoteAddr string, proto EthrProtocol, testType EthrTestType, 
+var hubStatsCallback func(remoteAddr string, proto EthrProtocol, testType EthrTestType,
 	bw, cps, pps uint64, latencyStats *LatencyStats, hops []ethrHopData, test *ethrTest)
 
+// Active test for hub mode - used by emitLatencyResults to find the test
+// when the test lookup by session fails (e.g., external mode)
+var hubActiveTest *ethrTest
+
 type LatencyStats struct {
-	Avg    time.Duration
-	Min    time.Duration
-	Max    time.Duration
-	P50    time.Duration
-	P90    time.Duration
-	P95    time.Duration
-	P99    time.Duration
-	P999   time.Duration
-	P9999  time.Duration
+	Avg   time.Duration
+	Min   time.Duration
+	Max   time.Duration
+	P50   time.Duration
+	P90   time.Duration
+	P95   time.Duration
+	P99   time.Duration
+	P999  time.Duration
+	P9999 time.Duration
 }
 
 func timeToNextTick() time.Duration {

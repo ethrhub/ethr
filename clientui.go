@@ -1,8 +1,8 @@
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Copyright (C) Microsoft. All rights reserved.
 // Licensed under the MIT license.
 // See LICENSE.txt file in the project root for full license information.
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 package main
 
 import (
@@ -68,7 +68,7 @@ func (u *clientUI) emitLatencyResults(remote, proto string, avg, min, max, p50, 
 		durationToString(p95), durationToString(p99),
 		durationToString(p999), durationToString(p9999),
 		durationToString(max))
-	
+
 	// Send latency stats to hub if callback is set
 	if hubStatsCallback != nil {
 		latencyStats := &LatencyStats{
@@ -82,14 +82,31 @@ func (u *clientUI) emitLatencyResults(remote, proto string, avg, min, max, p50, 
 			P999:  p999,
 			P9999: p9999,
 		}
-		// Find the test for this remote - we'll use the first one found
+		
+		// First, try to use hubActiveTest if available (external mode)
+		if hubActiveTest != nil {
+			protoEnum := TCP
+			if proto == "udp" {
+				protoEnum = UDP
+			} else if proto == "icmp" {
+				protoEnum = ICMP
+			}
+			testType := hubActiveTest.testID.Type
+			hubStatsCallback(remote, protoEnum, testType, 0, 0, 0, latencyStats, nil, hubActiveTest)
+			return
+		}
+		
+		// Fallback: Find the test for this remote via gSessions lookup
 		gSessionLock.RLock()
 		var targetTest *ethrTest
+		var testType EthrTestType = Latency
 		for _, session := range gSessions {
 			if session.remoteIP == remote {
 				for _, test := range session.tests {
-					if test.testID.Type == Latency {
+					// Look for Latency or Ping type tests
+					if test.testID.Type == Latency || test.testID.Type == Ping {
 						targetTest = test
+						testType = test.testID.Type
 						break
 					}
 				}
@@ -99,7 +116,7 @@ func (u *clientUI) emitLatencyResults(remote, proto string, avg, min, max, p50, 
 			}
 		}
 		gSessionLock.RUnlock()
-		
+
 		if targetTest != nil {
 			protoEnum := TCP
 			if proto == "udp" {
@@ -107,7 +124,7 @@ func (u *clientUI) emitLatencyResults(remote, proto string, avg, min, max, p50, 
 			} else if proto == "icmp" {
 				protoEnum = ICMP
 			}
-			hubStatsCallback(remote, protoEnum, Latency, 0, 0, 0, latencyStats, nil, targetTest)
+			hubStatsCallback(remote, protoEnum, testType, 0, 0, 0, latencyStats, nil, targetTest)
 		}
 	}
 }
@@ -188,7 +205,7 @@ func printTestResult(test *ethrTest, seconds float64) {
 		}
 		logResults([]string{test.session.remoteIP, protoToString(test.testID.Protocol),
 			bytesToRate(cbw), "", ppsToString(cpps), ""})
-		
+
 		// Send stats to hub if callback is set
 		if hubStatsCallback != nil {
 			hubStatsCallback(test.session.remoteIP, test.testID.Protocol, test.testID.Type, cbw, 0, cpps, nil, nil, test)
@@ -204,7 +221,7 @@ func printTestResult(test *ethrTest, seconds float64) {
 			gInterval, gInterval+1, cpsToString(cps))
 		logResults([]string{test.session.remoteIP, protoToString(test.testID.Protocol),
 			"", cpsToString(cps), "", ""})
-		
+
 		// Send stats to hub if callback is set
 		if hubStatsCallback != nil {
 			hubStatsCallback(test.session.remoteIP, test.testID.Protocol, test.testID.Type, 0, cps, 0, nil, nil, test)
@@ -221,7 +238,7 @@ func printTestResult(test *ethrTest, seconds float64) {
 			gInterval, gInterval+1, bytesToRate(bw), ppsToString(pps))
 		logResults([]string{test.session.remoteIP, protoToString(test.testID.Protocol),
 			bytesToRate(bw), "", ppsToString(pps), ""})
-		
+
 		// Send stats to hub if callback is set
 		if hubStatsCallback != nil {
 			hubStatsCallback(test.session.remoteIP, test.testID.Protocol, test.testID.Type, bw, 0, pps, nil, nil, test)
@@ -246,7 +263,7 @@ func printTestResult(test *ethrTest, seconds float64) {
 				ui.printMsg("%2d.|--%-40s   %5s   %5s   %9s   %9s   %9s   %9s", i+1, "???", "-", "-", "-", "-", "-", "-")
 			}
 		}
-		
+
 		// Send MyTraceRoute stats to hub if callback is set
 		if hubStatsCallback != nil && gCurHops > 0 {
 			// Copy hop data to send to hub

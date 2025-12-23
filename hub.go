@@ -1,8 +1,8 @@
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Copyright (C) Microsoft. All rights reserved.
 // Licensed under the MIT license.
 // See LICENSE.txt file in the project root for full license information.
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 package main
 
 import (
@@ -79,7 +79,7 @@ type TestCommand struct {
 	Title            string            `json:"title,omitempty"`
 	Destination      string            `json:"destination,omitempty"`
 	Port             int               `json:"port"`
-	Duration         string            `json:"duration"`                   // Duration string with format: <num>[ms|s|m|h]
+	Duration         string            `json:"duration"` // Duration string with format: <num>[ms|s|m|h]
 	Threads          int               `json:"threads"`
 	BufferSize       string            `json:"bufferSize,omitempty"`
 	Bandwidth        string            `json:"bandwidth,omitempty"`
@@ -100,23 +100,23 @@ func parseDurationToSeconds(durationStr string) int {
 	if durationStr == "" {
 		return 10 // default 10 seconds
 	}
-	
+
 	durationStr = strings.TrimSpace(durationStr)
 	if durationStr == "0" {
 		return 0 // run forever
 	}
-	
+
 	// Try to parse with time.ParseDuration (supports h, m, s, ms, us, ns)
 	if d, err := time.ParseDuration(durationStr); err == nil {
 		return int(d.Seconds())
 	}
-	
+
 	// Fall back: try parsing as just a number (assume seconds)
 	var num int
 	if _, err := fmt.Sscanf(durationStr, "%d", &num); err == nil {
 		return num
 	}
-	
+
 	return 10 // default
 }
 
@@ -125,97 +125,97 @@ func parseDurationToTime(durationStr string) time.Duration {
 	if durationStr == "" {
 		return 10 * time.Second // default
 	}
-	
+
 	durationStr = strings.TrimSpace(durationStr)
 	if durationStr == "0" {
 		return 0 // run forever
 	}
-	
+
 	// Try to parse with time.ParseDuration
 	if d, err := time.ParseDuration(durationStr); err == nil {
 		return d
 	}
-	
+
 	// Fall back: try parsing as just a number (assume seconds)
 	var num int
 	if _, err := fmt.Sscanf(durationStr, "%d", &num); err == nil {
 		return time.Duration(num) * time.Second
 	}
-	
+
 	return 10 * time.Second // default
 }
 
 type TestResult struct {
-	Timestamp         time.Time              `json:"timestamp"`
-	Source            string                 `json:"source"`              // "client", "server", or "external"
-	Type              string                 `json:"type"`                // "interval", "summary", "error", "latency", "ping", "traceroute", "mytraceroute", "connection"
-	Protocol          string                 `json:"protocol,omitempty"`
-	Interval          *int                   `json:"interval,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
+	Source    string    `json:"source"` // "client", "server", or "external"
+	Type      string    `json:"type"`   // "interval", "summary", "error", "latency", "ping", "traceroute", "mytraceroute", "connection"
+	Protocol  string    `json:"protocol,omitempty"`
+	Interval  *int      `json:"interval,omitempty"`
 	// Bandwidth test fields
-	BitsPerSec        *int64                 `json:"bitsPerSec,omitempty"`
-	BytesTransferred  *int64                 `json:"bytesTransferred,omitempty"`
-	PacketsPerSec     *int64                 `json:"packetsPerSec,omitempty"`
+	BitsPerSec       *int64 `json:"bitsPerSec,omitempty"`
+	BytesTransferred *int64 `json:"bytesTransferred,omitempty"`
+	PacketsPerSec    *int64 `json:"packetsPerSec,omitempty"`
 	// Connection test fields
-	ConnectionsPerSec *int64                 `json:"connectionsPerSec,omitempty"`
-	TotalConnections  *int64                 `json:"totalConnections,omitempty"`
+	ConnectionsPerSec *int64 `json:"connectionsPerSec,omitempty"`
+	TotalConnections  *int64 `json:"totalConnections,omitempty"`
 	// Latency test fields
-	LatencyMs         *float64               `json:"latencyMs,omitempty"`
-	LatencyAvg        *float64               `json:"latencyAvg,omitempty"`
-	LatencyMin        *float64               `json:"latencyMin,omitempty"`
-	LatencyMax        *float64               `json:"latencyMax,omitempty"`
-	LatencyP50        *float64               `json:"latencyP50,omitempty"`
-	LatencyP90        *float64               `json:"latencyP90,omitempty"`
-	LatencyP95        *float64               `json:"latencyP95,omitempty"`
-	LatencyP99        *float64               `json:"latencyP99,omitempty"`
-	LatencyP999       *float64               `json:"latencyP999,omitempty"`
-	LatencyP9999      *float64               `json:"latencyP9999,omitempty"`
+	LatencyMs    *float64 `json:"latencyMs,omitempty"`
+	LatencyAvg   *float64 `json:"latencyAvg,omitempty"`
+	LatencyMin   *float64 `json:"latencyMin,omitempty"`
+	LatencyMax   *float64 `json:"latencyMax,omitempty"`
+	LatencyP50   *float64 `json:"latencyP50,omitempty"`
+	LatencyP90   *float64 `json:"latencyP90,omitempty"`
+	LatencyP95   *float64 `json:"latencyP95,omitempty"`
+	LatencyP99   *float64 `json:"latencyP99,omitempty"`
+	LatencyP999  *float64 `json:"latencyP999,omitempty"`
+	LatencyP9999 *float64 `json:"latencyP9999,omitempty"`
 	// Network quality fields
-	JitterMs          *float64               `json:"jitterMs,omitempty"`
-	PacketLoss        *float64               `json:"packetLoss,omitempty"`
-	Retransmissions   *int64                 `json:"retransmissions,omitempty"`
+	JitterMs        *float64 `json:"jitterMs,omitempty"`
+	PacketLoss      *float64 `json:"packetLoss,omitempty"`
+	Retransmissions *int64   `json:"retransmissions,omitempty"`
 	// Ping test fields
-	PingSent          *int                   `json:"pingSent,omitempty"`
-	PingReceived      *int                   `json:"pingReceived,omitempty"`
-	PingLossPercent   *float64               `json:"pingLossPercent,omitempty"`
+	PingSent        *int     `json:"pingSent,omitempty"`
+	PingReceived    *int     `json:"pingReceived,omitempty"`
+	PingLossPercent *float64 `json:"pingLossPercent,omitempty"`
 	// Traceroute/MyTraceRoute fields
-	Hops              []TracerouteHop        `json:"hops,omitempty"`
-	HopNumber         *int                   `json:"hopNumber,omitempty"`
-	HopAddress        *string                `json:"hopAddress,omitempty"`
+	Hops       []TracerouteHop `json:"hops,omitempty"`
+	HopNumber  *int            `json:"hopNumber,omitempty"`
+	HopAddress *string         `json:"hopAddress,omitempty"`
 	// Connection-level statistics
-	ConnectionId      *string                `json:"connectionId,omitempty"`
-	ConnectionBitsPerSec    *int64           `json:"connectionBitsPerSec,omitempty"`
-	ConnectionPacketsPerSec *int64           `json:"connectionPacketsPerSec,omitempty"`
+	ConnectionId            *string `json:"connectionId,omitempty"`
+	ConnectionBitsPerSec    *int64  `json:"connectionBitsPerSec,omitempty"`
+	ConnectionPacketsPerSec *int64  `json:"connectionPacketsPerSec,omitempty"`
 	// General metadata
-	Metadata          map[string]interface{} `json:"metadata,omitempty"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 	// Test parameters (for display in UI)
-	TestParams        *TestParameters        `json:"testParams,omitempty"`
+	TestParams *TestParameters `json:"testParams,omitempty"`
 }
 
 type TracerouteHop struct {
-	Hop          int      `json:"hop"`
-	Address      string   `json:"address,omitempty"`
-	Hostname     string   `json:"hostname,omitempty"`
-	Sent         int      `json:"sent"`
-	Received     int      `json:"received"`
-	LossPercent  float64  `json:"lossPercent"`
-	LastMs       *float64 `json:"lastMs,omitempty"`
-	AvgMs        *float64 `json:"avgMs,omitempty"`
-	BestMs       *float64 `json:"bestMs,omitempty"`
-	WorstMs      *float64 `json:"worstMs,omitempty"`
+	Hop         int      `json:"hop"`
+	Address     string   `json:"address,omitempty"`
+	Hostname    string   `json:"hostname,omitempty"`
+	Sent        int      `json:"sent"`
+	Received    int      `json:"received"`
+	LossPercent float64  `json:"lossPercent"`
+	LastMs      *float64 `json:"lastMs,omitempty"`
+	AvgMs       *float64 `json:"avgMs,omitempty"`
+	BestMs      *float64 `json:"bestMs,omitempty"`
+	WorstMs     *float64 `json:"worstMs,omitempty"`
 }
 
 type TestParameters struct {
-	TestType     string `json:"testType"`
-	Protocol     string `json:"protocol"`
-	Threads      int    `json:"threads"`
-	BufferSize   string `json:"bufferSize"`
-	Duration     int    `json:"duration"`
-	Bandwidth    string `json:"bandwidth,omitempty"`
-	Reverse      bool   `json:"reverse"`
-	Destination  string `json:"destination,omitempty"`
-	Port         int    `json:"port,omitempty"`
-	Title        string `json:"title,omitempty"`
-	ClientName   string `json:"clientName,omitempty"`
+	TestType    string `json:"testType"`
+	Protocol    string `json:"protocol"`
+	Threads     int    `json:"threads"`
+	BufferSize  string `json:"bufferSize"`
+	Duration    int    `json:"duration"`
+	Bandwidth   string `json:"bandwidth,omitempty"`
+	Reverse     bool   `json:"reverse"`
+	Destination string `json:"destination,omitempty"`
+	Port        int    `json:"port,omitempty"`
+	Title       string `json:"title,omitempty"`
+	ClientName  string `json:"clientName,omitempty"`
 }
 
 type ResultSubmissionRequest struct {
@@ -284,7 +284,7 @@ func saveTokens(serverURL, accessToken, refreshToken string, expiresIn int) erro
 	if err := ensureTokensDir(); err != nil {
 		return err
 	}
-	
+
 	tokenData := map[string]interface{}{
 		"hub_url":       serverURL,
 		"access_token":  accessToken,
@@ -292,12 +292,12 @@ func saveTokens(serverURL, accessToken, refreshToken string, expiresIn int) erro
 		"expires_at":    time.Now().Add(time.Duration(expiresIn) * time.Second).Unix(),
 		"saved_at":      time.Now().Unix(),
 	}
-	
+
 	data, err := json.MarshalIndent(tokenData, "", "  ")
 	if err != nil {
 		return err
 	}
-	
+
 	return os.WriteFile(getTokenFilePath(serverURL), data, 0600)
 }
 
@@ -306,12 +306,12 @@ func saveTokens(serverURL, accessToken, refreshToken string, expiresIn int) erro
 // Uses cross-platform file-based locking that works on Unix, Windows, and macOS.
 func acquireTokenLock(serverURL string) (string, error) {
 	lockPath := getTokenFilePath(serverURL) + ".lock"
-	
+
 	// Try to create the lock file exclusively
 	timeout := time.After(10 * time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		// O_CREATE | O_EXCL ensures atomic creation - fails if file exists
 		lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -323,7 +323,7 @@ func acquireTokenLock(serverURL string) (string, error) {
 			ui.printDbg("Token lock acquired")
 			return lockPath, nil
 		}
-		
+
 		// Lock file already exists, check if it's stale
 		if info, statErr := os.Stat(lockPath); statErr == nil {
 			// If lock file is older than 30 seconds, assume previous process crashed
@@ -333,7 +333,7 @@ func acquireTokenLock(serverURL string) (string, error) {
 				continue
 			}
 		}
-		
+
 		// Wait and retry
 		select {
 		case <-timeout:
@@ -357,17 +357,17 @@ func loadTokens(serverURL string) (accessToken, refreshToken string, expiresAt t
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	
+
 	var tokenData map[string]interface{}
 	if err := json.Unmarshal(data, &tokenData); err != nil {
 		return "", "", time.Time{}, err
 	}
-	
+
 	accessToken, _ = tokenData["access_token"].(string)
 	refreshToken, _ = tokenData["refresh_token"].(string)
 	expiresAtUnix, _ := tokenData["expires_at"].(float64)
 	expiresAt = time.Unix(int64(expiresAtUnix), 0)
-	
+
 	return accessToken, refreshToken, expiresAt, nil
 }
 
@@ -384,7 +384,7 @@ func listSavedHubs() ([]string, error) {
 		}
 		return nil, err
 	}
-	
+
 	var hubs []string
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
@@ -393,18 +393,18 @@ func listSavedHubs() ([]string, error) {
 			if err != nil {
 				continue
 			}
-			
+
 			var tokenData map[string]interface{}
 			if err := json.Unmarshal(data, &tokenData); err != nil {
 				continue
 			}
-			
+
 			if hubURL, ok := tokenData["hub_url"].(string); ok {
 				hubs = append(hubs, hubURL)
 			}
 		}
 	}
-	
+
 	return hubs, nil
 }
 
@@ -412,9 +412,9 @@ func tryRefreshToken(serverURL string, refreshToken string) (*TokenResponse, err
 	reqBody, _ := json.Marshal(map[string]string{
 		"refresh_token": refreshToken,
 	})
-	
+
 	ui.printDbg("Token refresh request: %s", string(reqBody))
-	
+
 	resp, err := hubHttpClient.Post(
 		serverURL+"/api/token/refresh",
 		"application/json",
@@ -424,17 +424,17 @@ func tryRefreshToken(serverURL string, refreshToken string) (*TokenResponse, err
 		return nil, err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("refresh failed (HTTP %d): %s", resp.StatusCode, string(body))
 	}
-	
+
 	var tokenResp TokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return nil, err
 	}
-	
+
 	return &tokenResp, nil
 }
 
@@ -471,14 +471,14 @@ func runHubAgent(config HubConfig) {
 	if err == nil && loadedRefreshToken != "" {
 		ui.printMsg("Found saved credentials for this hub, attempting automatic login...")
 		ui.printDbg("Loaded token expires at: %v (in %v)", expiresAt, time.Until(expiresAt))
-		
+
 		// Check if access token is still valid (with 5 minute buffer, or 30 seconds for short-lived tokens)
 		bufferTime := 5 * time.Minute
 		if time.Until(expiresAt) < 2*time.Minute {
 			// For short-lived tokens (< 2 minutes), use 30 second buffer
 			bufferTime = 30 * time.Second
 		}
-		
+
 		if time.Now().Before(expiresAt.Add(-bufferTime)) {
 			// Access token is still valid
 			ui.printDbg("Using cached access token (valid for %v more)", time.Until(expiresAt))
@@ -495,7 +495,7 @@ func runHubAgent(config HubConfig) {
 				hubAuth.AccessToken = tokenResp.AccessToken
 				hubAuth.RefreshToken = tokenResp.RefreshToken
 				hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-				
+
 				// Save new tokens
 				saveTokens(config.ServerURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
 				ui.printDbg("New tokens saved, expires at: %v", hubAuth.ExpiresAt)
@@ -517,7 +517,7 @@ func runHubAgent(config HubConfig) {
 			ui.printErr("Authentication failed: %v", err)
 			os.Exit(1)
 		}
-		
+
 		// Save tokens after successful auth
 		saveTokens(config.ServerURL, hubAuth.AccessToken, hubAuth.RefreshToken, 3600)
 		ui.printMsg("Credentials saved for future use")
@@ -531,11 +531,11 @@ func runHubAgent(config HubConfig) {
 		// If registration fails with what looks like an auth error, try refreshing token
 		if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "Unauthorized") {
 			ui.printDbg("Registration failed with auth error, attempting token refresh...")
-			
+
 			hubAuth.mu.RLock()
 			refreshToken := hubAuth.RefreshToken
 			hubAuth.mu.RUnlock()
-			
+
 			if refreshToken != "" {
 				tokenResp, refreshErr := tryRefreshToken(config.ServerURL, refreshToken)
 				if refreshErr == nil {
@@ -545,10 +545,10 @@ func runHubAgent(config HubConfig) {
 					hubAuth.RefreshToken = tokenResp.RefreshToken
 					hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 					hubAuth.mu.Unlock()
-					
+
 					// Save new tokens
 					saveTokens(config.ServerURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
-					
+
 					// Retry registration
 					err = registerAgent(config.ServerURL, config.Title)
 				} else {
@@ -564,7 +564,7 @@ func runHubAgent(config HubConfig) {
 				}
 			}
 		}
-		
+
 		if err != nil {
 			ui.printErr("Agent registration failed: %v", err)
 			os.Exit(1)
@@ -576,7 +576,7 @@ func runHubAgent(config HubConfig) {
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	
+
 	// Start token refresh goroutine
 	go tokenRefreshLoop(config.ServerURL)
 
@@ -585,11 +585,11 @@ func runHubAgent(config HubConfig) {
 
 	// Start command polling loop in goroutine
 	go commandLoop(config.ServerURL)
-	
+
 	// Wait for interrupt signal
 	<-sigChan
 	ui.printMsg("\nReceived interrupt signal, shutting down gracefully...")
-	
+
 	// Clean up and exit
 	os.Exit(0)
 }
@@ -686,38 +686,38 @@ func generateFriendlyTitle() string {
 		"Rocket", "Laser", "Plasma", "Quantum", "Cyber",
 		"Hyper", "Ultra", "Mega", "Super", "Alpha",
 	}
-	
+
 	words2 := []string{
 		"Bolt", "Dash", "Rush", "Blast", "Pulse",
 		"Wave", "Spark", "Flow", "Flux", "Sync",
 		"Link", "Node", "Core", "Edge", "Net",
 		"Hub", "Beam", "Ray", "Peak", "Zone",
 	}
-	
+
 	// Use timestamp and process ID for better randomness
 	seed := time.Now().UnixNano()
 	pid := os.Getpid()
-	
+
 	// Use different parts of the seed for each index
 	idx1 := int((seed ^ int64(pid)) % int64(len(words1)))
 	idx2 := int((seed >> 16) % int64(len(words2)))
-	
+
 	return fmt.Sprintf("%s%s", words1[idx1], words2[idx2])
 }
 
 func registerAgent(serverURL string, title string) error {
 	hostname, _ := os.Hostname()
-	
+
 	// Auto-generate title if not provided
 	autoGenerated := false
 	if title == "" {
 		title = generateFriendlyTitle()
 		autoGenerated = true
 	}
-	
+
 	// Store title globally for re-registration
 	hubAgentTitle = title
-	
+
 	req := AgentRegistrationRequest{
 		Hostname:     hostname,
 		IpAddress:    getLocalIP(),
@@ -726,7 +726,7 @@ func registerAgent(serverURL string, title string) error {
 		Title:        title,
 		Capabilities: []string{"bandwidth", "latency", "cps", "pps"},
 	}
-	
+
 	// Print session title in a box
 	ui.printMsg("╔═══════════════════════════════════════════════════════════════╗")
 	ui.printMsg("║  Session Title: %-46s║", title)
@@ -745,7 +745,7 @@ func registerAgent(serverURL string, title string) error {
 	hubAuth.mu.RLock()
 	accessToken := hubAuth.AccessToken
 	hubAuth.mu.RUnlock()
-	
+
 	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
 	httpReq.Header.Set("Content-Type", "application/json")
 
@@ -784,7 +784,7 @@ func registerAgent(serverURL string, title string) error {
 func tokenRefreshLoop(serverURL string) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		hubAuth.mu.RLock()
 		expiresAt := hubAuth.ExpiresAt
@@ -793,7 +793,7 @@ func tokenRefreshLoop(serverURL string) {
 		// Calculate refresh buffer based on token lifetime
 		timeUntilExpiry := time.Until(expiresAt)
 		var refreshBuffer time.Duration
-		
+
 		if timeUntilExpiry < 2*time.Minute {
 			// For short-lived tokens (< 2 minutes), refresh 30 seconds before expiry
 			refreshBuffer = 30 * time.Second
@@ -801,13 +801,13 @@ func tokenRefreshLoop(serverURL string) {
 			// For longer-lived tokens, refresh 5 minutes before expiry
 			refreshBuffer = 5 * time.Minute
 		}
-		
+
 		timeToRefresh := timeUntilExpiry - refreshBuffer
 		if timeToRefresh > 0 {
 			// Token is still valid, no need to refresh yet
 			continue
 		}
-		
+
 		ui.printDbg("Token needs refresh (expires in %v)", timeUntilExpiry)
 
 		// Acquire lock to prevent race conditions with multiple clients
@@ -830,7 +830,7 @@ func tokenRefreshLoop(serverURL string) {
 			} else {
 				refreshBuffer = 5 * time.Minute
 			}
-			
+
 			if timeUntilExpiry > refreshBuffer {
 				// Token was already refreshed by another client, use it
 				ui.printDbg("Token was already refreshed by another client (valid for %v more)", timeUntilExpiry)
@@ -942,16 +942,16 @@ func heartbeatLoop(serverURL string) {
 			ui.printDbg("Heartbeat failed: %v", err)
 			continue
 		}
-		
+
 		if resp.StatusCode == http.StatusUnauthorized {
 			// Token expired, refresh immediately
 			resp.Body.Close()
 			ui.printDbg("Heartbeat failed with 401, refreshing token immediately...")
-			
+
 			hubAuth.mu.RLock()
 			refreshToken := hubAuth.RefreshToken
 			hubAuth.mu.RUnlock()
-			
+
 			tokenResp, err := tryRefreshToken(serverURL, refreshToken)
 			if err != nil {
 				// Refresh failed - maybe another process already refreshed?
@@ -967,21 +967,21 @@ func heartbeatLoop(serverURL string) {
 					ui.printDbg("Loaded updated tokens from disk, will retry on next heartbeat")
 					continue
 				}
-				
+
 				// Still failed - refresh token is invalid (server restarted or token expired)
 				// Clear tokens and re-authenticate
 				ui.printMsg("Refresh token invalid, re-authenticating...")
 				clearTokens(serverURL)
-				
+
 				if err := performDeviceAuth(serverURL); err != nil {
 					ui.printErr("Re-authentication failed: %v", err)
 					time.Sleep(30 * time.Second)
 					continue
 				}
-				
+
 				saveTokens(serverURL, hubAuth.AccessToken, hubAuth.RefreshToken, 3600)
 				ui.printMsg("Re-authentication successful")
-				
+
 				// Also need to re-register since server may have restarted
 				if err := registerAgent(serverURL, hubAgentTitle); err != nil {
 					ui.printErr("Re-registration failed: %v", err)
@@ -991,20 +991,20 @@ func heartbeatLoop(serverURL string) {
 				ui.printMsg("Re-registered successfully with new agent ID: %s", hubAgentId)
 				continue
 			}
-			
+
 			hubAuth.mu.Lock()
 			hubAuth.AccessToken = tokenResp.AccessToken
 			hubAuth.RefreshToken = tokenResp.RefreshToken
 			hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 			hubAuth.mu.Unlock()
-			
+
 			saveTokens(serverURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
 			ui.printDbg("Token refreshed successfully, next heartbeat will use new token")
 		} else if resp.StatusCode == http.StatusNotFound {
 			// Agent not found (server probably restarted), re-register
 			resp.Body.Close()
 			ui.printMsg("Agent not found on server (server may have restarted), re-registering...")
-			
+
 			if err := registerAgent(serverURL, hubAgentTitle); err != nil {
 				ui.printErr("Re-registration failed: %v", err)
 			} else {
@@ -1065,13 +1065,13 @@ func commandLoop(serverURL string) {
 func cancelTest(sessionId string) {
 	runningTests.Lock()
 	defer runningTests.Unlock()
-	
+
 	// Debug: print all running tests
 	ui.printDbg("Looking for session %s to cancel. Currently running tests:", sessionId)
 	for id := range runningTests.tests {
 		ui.printDbg("  - %s", id)
 	}
-	
+
 	if cancelChan, exists := runningTests.tests[sessionId]; exists {
 		close(cancelChan)
 		delete(runningTests.tests, sessionId)
@@ -1089,7 +1089,7 @@ func executeCommand(serverURL string, sessionId string, cmd TestCommand) {
 	runningTests.Lock()
 	runningTests.tests[sessionId] = cancelChan
 	runningTests.Unlock()
-	
+
 	// Update status to running
 	updateSessionStatus(serverURL, sessionId, "Running", "")
 
@@ -1119,14 +1119,14 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 		time.Sleep(200 * time.Millisecond)
 		serverTestMutex.Unlock()
 	}()
-	
+
 	// Start ethr server
 	ui.printMsg("Starting server on port %d (server mode runs indefinitely)", cmd.Port)
-	
+
 	// Set global port
 	gEthrPort = uint16(cmd.Port)
 	gEthrPortStr = fmt.Sprintf("%d", cmd.Port)
-	
+
 	// Send initial status
 	sendResult(serverURL, sessionId, TestResult{
 		Timestamp: time.Now(),
@@ -1135,26 +1135,26 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 		Protocol:  cmd.Protocol,
 		Metadata:  map[string]interface{}{"status": "starting", "port": cmd.Port},
 	}, false)
-	
+
 	// Set up callback to receive stats from ethr's stats system
-	var testParamsSent = make(map[string]bool) // Track if we've sent params for this remote addr
+	var testParamsSent = make(map[string]bool)  // Track if we've sent params for this remote addr
 	var intervalCounters = make(map[string]int) // Track interval counter per remote addr
 	var lastSessionID = make(map[string]string) // Track session ID for deterministic new test detection
-	
-	hubStatsCallback = func(remoteAddr string, proto EthrProtocol, testType EthrTestType, 
+
+	hubStatsCallback = func(remoteAddr string, proto EthrProtocol, testType EthrTestType,
 		bw, cps, pps uint64, latencyStats *LatencyStats, hops []ethrHopData, test *ethrTest) {
 		newTestDetected := false
-		
+
 		if test != nil {
 			currentSessionID := test.sessionID
 			hasControlChannel := test.ctrlConn != nil || currentSessionID != ""
-			
+
 			// DETERMINISTIC: Use sessionID if control channel exists
 			if hasControlChannel {
 				prevSessionID := lastSessionID[remoteAddr]
 				if prevSessionID != "" && prevSessionID != currentSessionID {
 					newTestDetected = true
-					ui.printDbg("New test session detected for %s (sessionID changed: %s -> %s)", 
+					ui.printDbg("New test session detected for %s (sessionID changed: %s -> %s)",
 						remoteAddr, prevSessionID, currentSessionID)
 				}
 				lastSessionID[remoteAddr] = currentSessionID
@@ -1162,14 +1162,14 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 				// HEURISTICS: Fall back to multiple detection methods for -ncc mode
 				// 1. Test type or protocol changed (different test started)
 				// 2. Test start time changed (same test type restarted)
-				
+
 				currentStartTime := test.startTime
 				prevSessionID := lastSessionID[remoteAddr]
-				
+
 				// Check if test pointer changed
 				if prevSessionID != "" && lastSessionID[remoteAddr] != "" {
 					// We've seen this client before (in -ncc mode)
-					
+
 					// Check if test type or protocol changed
 					if test.testID.Type != 0 { // Valid test type
 						key := fmt.Sprintf("%s_%d_%d", remoteAddr, test.testID.Type, test.testID.Protocol)
@@ -1180,7 +1180,7 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 						}
 						lastSessionID[remoteAddr] = key
 					}
-					
+
 					// Check if test start time changed (test restarted with same type)
 					if !currentStartTime.IsZero() {
 						startTimeKey := fmt.Sprintf("start_%s_%d", remoteAddr, currentStartTime.Unix())
@@ -1195,43 +1195,43 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 					lastSessionID[remoteAddr] = fmt.Sprintf("init_%s", remoteAddr)
 				}
 			}
-			
+
 			// Reset counters if new test detected
 			if newTestDetected {
 				intervalCounters[remoteAddr] = 0
 				testParamsSent[remoteAddr] = false
 			}
 		}
-		
+
 		// Get or initialize interval counter for this client
 		intervalCounters[remoteAddr]++
 		interval := intervalCounters[remoteAddr]
-		
+
 		result := TestResult{
 			Timestamp: time.Now(),
 			Source:    "server",
 			Protocol:  protoToString(proto),
 		}
-		
+
 		// Handle different test types
 		switch testType {
 		case Bandwidth:
 			bps := int64(bw * 8) // Convert bytes/sec to bits/sec
 			bytes := int64(bw)   // Bytes transferred in this second
 			pkts := int64(pps)
-			
+
 			result.Type = "interval"
 			result.Interval = &interval
 			result.BitsPerSec = &bps
 			result.BytesTransferred = &bytes
 			result.PacketsPerSec = &pkts
-			
+
 		case Cps:
 			cpsVal := int64(cps)
 			result.Type = "interval"
 			result.Interval = &interval
 			result.ConnectionsPerSec = &cpsVal
-			
+
 		case Pps:
 			bps := int64(bw * 8)
 			pkts := int64(pps)
@@ -1239,7 +1239,7 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 			result.Interval = &interval
 			result.BitsPerSec = &bps
 			result.PacketsPerSec = &pkts
-			
+
 		case Latency:
 			if latencyStats != nil {
 				avgMs := float64(latencyStats.Avg.Microseconds()) / 1000.0
@@ -1251,7 +1251,7 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 				p99Ms := float64(latencyStats.P99.Microseconds()) / 1000.0
 				p999Ms := float64(latencyStats.P999.Microseconds()) / 1000.0
 				p9999Ms := float64(latencyStats.P9999.Microseconds()) / 1000.0
-				
+
 				result.Type = "latency"
 				result.LatencyAvg = &avgMs
 				result.LatencyMin = &minMs
@@ -1264,11 +1264,11 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 				result.LatencyP9999 = &p9999Ms
 			}
 		}
-		
+
 		// Include test parameters from client on first interval for each remote address
 		if test != nil && !testParamsSent[remoteAddr] {
 			testParamsSent[remoteAddr] = true
-			
+
 			// Build test parameters from clientParam received in handshake
 			testTypeStr := "bandwidth"
 			switch testType {
@@ -1287,13 +1287,13 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 			case MyTraceRoute:
 				testTypeStr = "mytraceroute"
 			}
-			
+
 			bufferSize := fmt.Sprintf("%dKB", test.clientParam.BufferSize/1024)
 			bandwidth := "unlimited"
 			if test.clientParam.BwRate > 0 {
 				bandwidth = fmt.Sprintf("%d bps", test.clientParam.BwRate)
 			}
-			
+
 			result.TestParams = &TestParameters{
 				TestType:    testTypeStr,
 				Protocol:    protoToString(proto),
@@ -1306,25 +1306,25 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 				ClientName:  remoteAddr, // Use client IP as name from server perspective
 			}
 		}
-		
+
 		// Send result if it has meaningful data
 		if result.Type != "" {
 			sendResult(serverURL, sessionId, result, false)
 		}
 	}
-	
+
 	// Start the actual ethr server in a goroutine
 	// This will automatically use our callback for stats reporting
 	serverParam := ethrServerParam{
 		showUI:    false,
 		oneClient: false,
 	}
-	
+
 	serverDone := make(chan error, 1)
 	go func() {
 		serverDone <- runServer(serverParam)
 	}()
-	
+
 	// Wait for either server completion or cancellation
 	select {
 	case err := <-serverDone:
@@ -1352,14 +1352,14 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 			Metadata:  map[string]interface{}{"status": "stopped"},
 		}, true)
 		updateSessionStatus(serverURL, sessionId, "Cancelled", "Server stopped")
-		
+
 	case <-cancelChan:
 		// Test was cancelled - signal server to stop
 		ui.printDbg("Cancelling server for session %s", sessionId)
 		if gServerCancelChan != nil {
 			close(gServerCancelChan)
 		}
-		
+
 		// Wait for server to actually stop (with timeout)
 		select {
 		case err := <-serverDone:
@@ -1369,7 +1369,7 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 		case <-time.After(5 * time.Second):
 			ui.printMsg("Server stop timed out")
 		}
-		
+
 		hubStatsCallback = nil
 		sendResult(serverURL, sessionId, TestResult{
 			Timestamp: time.Now(),
@@ -1380,7 +1380,7 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 		}, true)
 		updateSessionStatus(serverURL, sessionId, "Cancelled", "Test cancelled by user")
 	}
-	
+
 	// Clean up from running tests map
 	runningTests.Lock()
 	delete(runningTests.tests, sessionId)
@@ -1395,7 +1395,7 @@ func buildTestParams(cmd TestCommand, protocol EthrProtocol, testType EthrTestTy
 	} else if protocol == ICMP {
 		protoStr = "icmp"
 	}
-	
+
 	testTypeStr := "bandwidth"
 	switch testType {
 	case Bandwidth:
@@ -1413,20 +1413,20 @@ func buildTestParams(cmd TestCommand, protocol EthrProtocol, testType EthrTestTy
 	case MyTraceRoute:
 		testTypeStr = "mytraceroute"
 	}
-	
+
 	bufferSize := "16KB"
 	if cmd.BufferSize != "" {
 		bufferSize = cmd.BufferSize
 	}
-	
+
 	bandwidth := "unlimited"
 	if cmd.Bandwidth != "" {
 		bandwidth = cmd.Bandwidth
 	}
-	
+
 	// Get client hostname for display
 	clientName, _ := os.Hostname()
-	
+
 	return &TestParameters{
 		TestType:    testTypeStr,
 		Protocol:    protoStr,
@@ -1453,10 +1453,10 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 	if cmd.Tos > 0 {
 		gTOS = uint8(cmd.Tos)
 	}
-	
+
 	// Start ethr client
 	ui.printMsg("Starting client test to %s:%d", cmd.Destination, cmd.Port)
-	
+
 	// Build test ID from command
 	var protocol EthrProtocol
 	switch cmd.Protocol {
@@ -1469,7 +1469,7 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 	default:
 		protocol = TCP
 	}
-	
+
 	var testType EthrTestType
 	switch cmd.TestType {
 	case "b":
@@ -1483,12 +1483,12 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 	default:
 		testType = Bandwidth
 	}
-	
+
 	testID := EthrTestID{
 		Type:     testType,
 		Protocol: protocol,
 	}
-	
+
 	// Build client parameters
 	bufferSize := uint32(16 * 1024) // Default 16KB
 	if cmd.BufferSize != "" {
@@ -1497,7 +1497,7 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 			bufferSize = 16 * 1024 // Fallback to default
 		}
 	}
-	
+
 	bwRate := uint64(0) // Default unlimited
 	if cmd.Bandwidth != "" {
 		bwRate = unitToNumber(cmd.Bandwidth)
@@ -1508,7 +1508,7 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 			ui.printMsg("Warning: Invalid bandwidth value '%s', using unlimited", cmd.Bandwidth)
 		}
 	}
-	
+
 	// Parse gap parameter (e.g., "1s", "100ms")
 	gap := time.Second // Default 1s
 	if cmd.Gap != "" {
@@ -1519,19 +1519,19 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 			ui.printMsg("Warning: Invalid gap value '%s', using default 1s", cmd.Gap)
 		}
 	}
-	
+
 	// Get iterations (for latency tests)
 	rttCount := uint32(1000) // Default 1000
 	if cmd.Iterations > 0 {
 		rttCount = uint32(cmd.Iterations)
 	}
-	
+
 	// Get warmup count
 	warmupCount := uint32(1) // Default 1
 	if cmd.Warmup > 0 {
 		warmupCount = uint32(cmd.Warmup)
 	}
-	
+
 	clientParam := EthrClientParam{
 		NumThreads:       uint32(cmd.Threads),
 		BufferSize:       bufferSize,
@@ -1544,13 +1544,13 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 		ToS:              uint8(cmd.Tos),
 		NoControlChannel: cmd.NoControlChannel,
 	}
-	
+
 	// Build test parameters for display (before goroutine so we can use it in results)
 	testParams := buildTestParams(cmd, protocol, testType)
-	
+
 	// Create server address
 	server := fmt.Sprintf("%s:%d", cmd.Destination, cmd.Port)
-	
+
 	// Run client test in a goroutine and capture stats
 	go func() {
 		var test *ethrTest
@@ -1561,10 +1561,10 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 				totalBw := atomic.LoadUint64(&test.testResult.totalBw)
 				totalPps := atomic.LoadUint64(&test.testResult.totalPps)
 				duration := time.Since(test.startTime).Seconds()
-				
+
 				if duration > 0 {
 					avgBps := int64(float64(totalBw*8) / duration)
-					
+
 					sendResult(serverURL, sessionId, TestResult{
 						Timestamp:  time.Now(),
 						Source:     "client",
@@ -1582,17 +1582,18 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 				deleteTest(test)
 			}
 			hubStatsCallback = nil
+			hubActiveTest = nil
 			ui.printDbg("Test cleanup completed for session %s", sessionId)
-			
+
 			// Remove from running tests map
 			runningTests.Lock()
 			delete(runningTests.tests, sessionId)
 			runningTests.Unlock()
 		}()
-		
+
 		// Don't call initClient() as it tries to create log files
 		// We're already running in hub mode with our own logging
-		
+
 		// Get server connection details
 		hostName, hostIP, port, err := getServerIPandPort(server)
 		if err != nil {
@@ -1607,9 +1608,9 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 			}, true)
 			return
 		}
-		
+
 		ui.printMsg("Using destination: %s, ip: %s, port: %s", hostName, hostIP, port)
-		
+
 		// Create test
 		test, err = newTest(hostIP, testID, clientParam)
 		if err != nil {
@@ -1620,65 +1621,68 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 				Type:       "summary",
 				Protocol:   cmd.Protocol,
 				TestParams: testParams,
-				Metadata:  map[string]interface{}{"error": err.Error()},
+				Metadata:   map[string]interface{}{"error": err.Error()},
 			}, true)
 			return
 		}
-		
+
 		test.remoteAddr = server
 		test.remoteIP = hostIP
 		test.remotePort = port
-		
+
 		if testID.Protocol == ICMP {
 			test.dialAddr = hostIP
 		} else {
 			test.dialAddr = fmt.Sprintf("[%s]:%s", hostIP, port)
 		}
-		
+
+		// Set hubActiveTest for direct callback access in emitLatencyResults
+		hubActiveTest = test
+
 		// Set up stats callback to receive stats from ethr's native system
 		var intervalCounter int = 1
-		hubStatsCallback = func(remoteAddr string, proto EthrProtocol, testType EthrTestType, 
+		hubStatsCallback = func(remoteAddr string, proto EthrProtocol, testType EthrTestType,
 			bw, cps, pps uint64, latencyStats *LatencyStats, hops []ethrHopData, test *ethrTest) {
 			if !test.isActive {
 				return
 			}
-			
+
 			result := TestResult{
 				Timestamp: time.Now(),
 				Source:    "client",
 				Protocol:  cmd.Protocol,
 			}
-			
+
 			// Handle different test types
 			switch testType {
 			case Bandwidth:
-				bps := int64(bw * 8) // Convert bytes/sec to bits/sec
+				bps := int64(bw * 8)          // Convert bytes/sec to bits/sec
 				bytesTransferred := int64(bw) // This is already per-second from printTestResult
 				packetsPerSec := int64(pps)
-				
+
 				result.Type = "interval"
 				result.Interval = &intervalCounter
 				result.BitsPerSec = &bps
 				result.BytesTransferred = &bytesTransferred
 				result.PacketsPerSec = &packetsPerSec
-				
+
 				// Include test parameters in the first interval result
 				if intervalCounter == 1 {
 					result.TestParams = testParams
 				}
 				intervalCounter++
-				
+
 			case Cps:
 				cpsVal := int64(cps)
 				result.Type = "interval"
 				result.Interval = &intervalCounter
 				result.ConnectionsPerSec = &cpsVal
-				
+
 				if intervalCounter == 1 {
 					result.TestParams = testParams
 				}
 				intervalCounter++
-				
+
 			case Pps:
 				bps := int64(bw * 8)
 				packetsPerSec := int64(pps)
@@ -1686,12 +1690,12 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 				result.Interval = &intervalCounter
 				result.BitsPerSec = &bps
 				result.PacketsPerSec = &packetsPerSec
-				
+
 				if intervalCounter == 1 {
 					result.TestParams = testParams
 				}
 				intervalCounter++
-				
+
 			case Latency:
 				if latencyStats != nil {
 					avgMs := float64(latencyStats.Avg.Microseconds()) / 1000.0
@@ -1703,7 +1707,7 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 					p99Ms := float64(latencyStats.P99.Microseconds()) / 1000.0
 					p999Ms := float64(latencyStats.P999.Microseconds()) / 1000.0
 					p9999Ms := float64(latencyStats.P9999.Microseconds()) / 1000.0
-					
+
 					result.Type = "latency"
 					result.LatencyAvg = &avgMs
 					result.LatencyMin = &minMs
@@ -1716,12 +1720,12 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 					result.LatencyP9999 = &p9999Ms
 					result.TestParams = testParams
 				}
-				
+
 			case MyTraceRoute:
-				if hops != nil && len(hops) > 0 {
+				if len(hops) > 0 {
 					result.Type = "mytraceroute"
 					result.Hops = make([]TracerouteHop, 0, len(hops))
-					
+
 					for i, hopData := range hops {
 						if hopData.addr != "" && hopData.sent > 0 {
 							hop := TracerouteHop{
@@ -1731,50 +1735,72 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 								Sent:     int(hopData.sent),
 								Received: int(hopData.rcvd),
 							}
-							
+
 							if hopData.sent > 0 {
 								hop.LossPercent = float64(hopData.lost) / float64(hopData.sent) * 100
 							}
-							
+
 							if hopData.rcvd > 0 {
 								lastMs := float64(hopData.last.Microseconds()) / 1000.0
 								avgMs := float64(hopData.total.Nanoseconds()/int64(hopData.rcvd)) / 1000000.0
 								bestMs := float64(hopData.best.Microseconds()) / 1000.0
 								worstMs := float64(hopData.worst.Microseconds()) / 1000.0
-								
+
 								hop.LastMs = &lastMs
 								hop.AvgMs = &avgMs
 								hop.BestMs = &bestMs
 								hop.WorstMs = &worstMs
 							}
-							
+
 							result.Hops = append(result.Hops, hop)
 						}
 					}
 					result.TestParams = testParams
 				}
-				
+
 			case Ping:
-				// Ping results are typically sent as metadata in other messages
-				// If we receive hop data with a single entry, treat it as ping
-				if hops != nil && len(hops) == 1 {
+				// Ping results can come as latency stats (TCP ping) or hop data (ICMP ping)
+				if latencyStats != nil {
+					avgMs := float64(latencyStats.Avg.Microseconds()) / 1000.0
+					minMs := float64(latencyStats.Min.Microseconds()) / 1000.0
+					maxMs := float64(latencyStats.Max.Microseconds()) / 1000.0
+					p50Ms := float64(latencyStats.P50.Microseconds()) / 1000.0
+					p90Ms := float64(latencyStats.P90.Microseconds()) / 1000.0
+					p95Ms := float64(latencyStats.P95.Microseconds()) / 1000.0
+					p99Ms := float64(latencyStats.P99.Microseconds()) / 1000.0
+					p999Ms := float64(latencyStats.P999.Microseconds()) / 1000.0
+					p9999Ms := float64(latencyStats.P9999.Microseconds()) / 1000.0
+
+					result.Type = "ping"
+					result.LatencyAvg = &avgMs
+					result.LatencyMin = &minMs
+					result.LatencyMax = &maxMs
+					result.LatencyP50 = &p50Ms
+					result.LatencyP90 = &p90Ms
+					result.LatencyP95 = &p95Ms
+					result.LatencyP99 = &p99Ms
+					result.LatencyP999 = &p999Ms
+					result.LatencyP9999 = &p9999Ms
+					result.TestParams = testParams
+				} else if len(hops) == 1 {
+					// ICMP ping with hop data
 					hopData := hops[0]
 					result.Type = "ping"
 					sent := int(hopData.sent)
 					rcvd := int(hopData.rcvd)
 					result.PingSent = &sent
 					result.PingReceived = &rcvd
-					
+
 					if hopData.sent > 0 {
 						lossPercent := float64(hopData.lost) / float64(hopData.sent) * 100
 						result.PingLossPercent = &lossPercent
 					}
-					
+
 					if hopData.rcvd > 0 {
 						avgMs := float64(hopData.total.Nanoseconds()/int64(hopData.rcvd)) / 1000000.0
 						minMs := float64(hopData.best.Microseconds()) / 1000.0
 						maxMs := float64(hopData.worst.Microseconds()) / 1000.0
-						
+
 						result.LatencyAvg = &avgMs
 						result.LatencyMin = &minMs
 						result.LatencyMax = &maxMs
@@ -1782,23 +1808,23 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 					result.TestParams = testParams
 				}
 			}
-			
+
 			// Send result if it has meaningful data
 			if result.Type != "" {
 				sendResult(serverURL, sessionId, result, false)
 			}
 		}
-		
+
 		// Mark test as started (for defer cleanup and summary)
 		testStarted = true
-		
+
 		// Run the test in a goroutine so we can monitor for cancellation
 		testDone := make(chan struct{})
 		go func() {
 			runTest(test)
 			close(testDone)
 		}()
-		
+
 		// Wait for either test completion or cancellation
 		select {
 		case <-testDone:
@@ -1840,13 +1866,13 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 	if cmd.Tos > 0 {
 		gTOS = uint8(cmd.Tos)
 	}
-	
+
 	// External mode: Run ping, traceroute, or mytraceroute against any destination
 	ui.printMsg("Starting external test (%s) to %s:%d", cmd.TestType, cmd.Destination, cmd.Port)
-	
+
 	// Set global flag for external mode
 	gIsExternalClient = true
-	
+
 	// Build test ID from command
 	var protocol EthrProtocol
 	switch cmd.Protocol {
@@ -1859,7 +1885,7 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 	default:
 		protocol = TCP
 	}
-	
+
 	var testType EthrTestType
 	switch cmd.TestType {
 	case "c":
@@ -1875,12 +1901,12 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 		updateSessionStatus(serverURL, sessionId, "Failed", "Invalid test type for external mode")
 		return
 	}
-	
+
 	testID := EthrTestID{
 		Type:     testType,
 		Protocol: protocol,
 	}
-	
+
 	// Parse gap parameter
 	gap := time.Second // Default 1s
 	if cmd.Gap != "" {
@@ -1891,13 +1917,13 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 			ui.printMsg("Warning: Invalid gap value '%s', using default 1s", cmd.Gap)
 		}
 	}
-	
+
 	// Get warmup count
 	warmupCount := uint32(1) // Default 1
 	if cmd.Warmup > 0 {
 		warmupCount = uint32(cmd.Warmup)
 	}
-	
+
 	// Build client parameters
 	clientParam := EthrClientParam{
 		NumThreads:  uint32(cmd.Threads),
@@ -1906,13 +1932,13 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 		WarmupCount: warmupCount,
 		ToS:         uint8(cmd.Tos),
 	}
-	
+
 	// Build test parameters for display
 	testParams := buildTestParams(cmd, protocol, testType)
-	
+
 	// Create server address
 	server := fmt.Sprintf("%s:%d", cmd.Destination, cmd.Port)
-	
+
 	// Run external test in a goroutine
 	go func() {
 		var test *ethrTest
@@ -1934,7 +1960,7 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 				deleteTest(test)
 			}
 		}()
-		
+
 		// Get server connection details
 		hostName, hostIP, port, err := getServerIPandPort(server)
 		if err != nil {
@@ -1949,9 +1975,9 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 			}, true)
 			return
 		}
-		
+
 		ui.printMsg("Using destination: %s, ip: %s, port: %s", hostName, hostIP, port)
-		
+
 		// Create test
 		test, err = newTest(hostIP, testID, clientParam)
 		if err != nil {
@@ -1966,31 +1992,34 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 			}, true)
 			return
 		}
-		
+
 		test.remoteAddr = server
 		test.remoteIP = hostIP
 		test.remotePort = port
-		
+
 		if testID.Protocol == ICMP {
 			test.dialAddr = hostIP
 		} else {
 			test.dialAddr = fmt.Sprintf("[%s]:%s", hostIP, port)
 		}
-		
+
+		// Set hubActiveTest for direct callback access in emitLatencyResults
+		hubActiveTest = test
+
 		// Set up stats callback for external tests (ping, traceroute, mytraceroute)
 		var intervalCounter int = 1
-		hubStatsCallback = func(remoteAddr string, proto EthrProtocol, testTypeCallback EthrTestType, 
+		hubStatsCallback = func(remoteAddr string, proto EthrProtocol, testTypeCallback EthrTestType,
 			bw, cps, pps uint64, latencyStats *LatencyStats, hops []ethrHopData, test *ethrTest) {
 			if !test.isActive {
 				return
 			}
-			
+
 			result := TestResult{
 				Timestamp: time.Now(),
 				Source:    "external",
 				Protocol:  cmd.Protocol,
 			}
-			
+
 			// Handle different external test types
 			switch testTypeCallback {
 			case Ping:
@@ -2002,7 +2031,9 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 					p90Ms := float64(latencyStats.P90.Microseconds()) / 1000.0
 					p95Ms := float64(latencyStats.P95.Microseconds()) / 1000.0
 					p99Ms := float64(latencyStats.P99.Microseconds()) / 1000.0
-					
+					p999Ms := float64(latencyStats.P999.Microseconds()) / 1000.0
+					p9999Ms := float64(latencyStats.P9999.Microseconds()) / 1000.0
+
 					result.Type = "ping"
 					result.LatencyAvg = &avgMs
 					result.LatencyMin = &minMs
@@ -2011,14 +2042,16 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 					result.LatencyP90 = &p90Ms
 					result.LatencyP95 = &p95Ms
 					result.LatencyP99 = &p99Ms
+					result.LatencyP999 = &p999Ms
+					result.LatencyP9999 = &p9999Ms
 					result.TestParams = testParams
 				}
-				
+
 			case MyTraceRoute, TraceRoute:
-				if hops != nil && len(hops) > 0 {
+				if len(hops) > 0 {
 					result.Type = "mytraceroute"
 					result.Hops = make([]TracerouteHop, 0, len(hops))
-					
+
 					for i, hopData := range hops {
 						if hopData.addr != "" && hopData.sent > 0 {
 							hop := TracerouteHop{
@@ -2028,44 +2061,44 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 								Sent:     int(hopData.sent),
 								Received: int(hopData.rcvd),
 							}
-							
+
 							if hopData.sent > 0 {
 								hop.LossPercent = float64(hopData.lost) / float64(hopData.sent) * 100
 							}
-							
+
 							if hopData.rcvd > 0 {
 								lastMs := float64(hopData.last.Microseconds()) / 1000.0
 								avgMs := float64(hopData.total.Nanoseconds()/int64(hopData.rcvd)) / 1000000.0
 								bestMs := float64(hopData.best.Microseconds()) / 1000.0
 								worstMs := float64(hopData.worst.Microseconds()) / 1000.0
-								
+
 								hop.LastMs = &lastMs
 								hop.AvgMs = &avgMs
 								hop.BestMs = &bestMs
 								hop.WorstMs = &worstMs
 							}
-							
+
 							result.Hops = append(result.Hops, hop)
 						}
 					}
 					result.TestParams = testParams
 				}
 			}
-			
+
 			// Send result if it has meaningful data
 			if result.Type != "" {
 				sendResult(serverURL, sessionId, result, false)
 			}
 			intervalCounter++
 		}
-		
+
 		// Run the test in a goroutine so we can monitor for cancellation
 		testDone := make(chan struct{})
 		go func() {
 			runTest(test)
 			close(testDone)
 		}()
-		
+
 		// Wait for either test completion or cancellation
 		select {
 		case <-testDone:
@@ -2093,9 +2126,10 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, ca
 			}
 			updateSessionStatus(serverURL, sessionId, "Cancelled", "Test cancelled by user")
 		}
-		
+
 		hubStatsCallback = nil
-		
+		hubActiveTest = nil
+
 		// Clean up from running tests map
 		runningTests.Lock()
 		delete(runningTests.tests, sessionId)
