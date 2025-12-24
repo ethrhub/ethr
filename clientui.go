@@ -82,7 +82,7 @@ func (u *clientUI) emitLatencyResults(remote, proto string, avg, min, max, p50, 
 			P999:  p999,
 			P9999: p9999,
 		}
-		
+
 		// First, try to use hubActiveTest if available (external mode)
 		if hubActiveTest != nil {
 			protoEnum := TCP
@@ -95,7 +95,7 @@ func (u *clientUI) emitLatencyResults(remote, proto string, avg, min, max, p50, 
 			hubStatsCallback(remote, protoEnum, testType, 0, 0, 0, latencyStats, nil, hubActiveTest)
 			return
 		}
-		
+
 		// Fallback: Find the test for this remote via gSessions lookup
 		gSessionLock.RLock()
 		var targetTest *ethrTest

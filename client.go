@@ -1,8 +1,8 @@
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Copyright (C) Microsoft. All rights reserved.
 // Licensed under the MIT license.
 // See LICENSE.txt file in the project root for full license information.
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 package main
 
 import (
@@ -228,11 +228,11 @@ func runTest(test *ethrTest) {
 	gap := test.clientParam.Gap
 	duration := test.clientParam.Duration
 	test.isActive = true
-	
+
 	// Reset cumulative totals for new test
 	atomic.StoreUint64(&test.testResult.totalBw, 0)
 	atomic.StoreUint64(&test.testResult.totalPps, 0)
-	
+
 	if test.testID.Protocol == TCP {
 		if test.testID.Type == Bandwidth {
 			if test.clientParam.NoControlChannel {
@@ -328,7 +328,7 @@ func runTest(test *ethrTest) {
 // Useful when server is behind a load balancer where control/data may hit different servers
 func tcpRunBandwidthTestInBandSync(test *ethrTest, toStop chan int, duration time.Duration) {
 	var wg sync.WaitGroup
-	
+
 	// Phase 1: Establish first connection and do sync handshake
 	// This connection does both sync AND data transfer (no separate control channel)
 	firstConn, err := ethrDialInc(TCP, test.dialAddr, 0)
@@ -394,7 +394,7 @@ func tcpRunBandwidthTestInBandSync(test *ethrTest, toStop chan int, duration tim
 			adjustedDelay = 0
 		}
 		startTime = time.Now().Add(adjustedDelay)
-		
+
 		// Send RTT back to server
 		ethrMsg = createSyncGoMsg(rttNs)
 		err = sendSessionMsg(firstConn, ethrMsg)
@@ -404,7 +404,7 @@ func tcpRunBandwidthTestInBandSync(test *ethrTest, toStop chan int, duration tim
 			toStop <- disconnect
 			return
 		}
-		
+
 		// Wait until the adjusted start time
 		waitUntilTime(startTime)
 	}
@@ -412,7 +412,7 @@ func tcpRunBandwidthTestInBandSync(test *ethrTest, toStop chan int, duration tim
 	// Phase 2: Establish remaining connections (they skip sync on server side)
 	var connections []net.Conn
 	connections = append(connections, firstConn)
-	
+
 	for th := uint32(1); th < test.clientParam.NumThreads; th++ {
 		conn, err := ethrDialInc(TCP, test.dialAddr, uint16(th))
 		if err != nil {
@@ -443,10 +443,10 @@ func tcpRunBandwidthTestInBandSync(test *ethrTest, toStop chan int, duration tim
 	// Set the test start time and start stats timer
 	test.startTime = startTime
 	startStatsTimerAt(startTime)
-	
+
 	// Release all threads simultaneously - this is when data transfer begins
 	close(startBarrier)
-	
+
 	// Start duration timer
 	runDurationTimer(duration, toStop)
 
@@ -610,26 +610,26 @@ func tcpRunBandwidthTestWithCtrl(test *ethrTest, toStop chan int, duration time.
 		go func() {
 			// Wait for the test duration
 			time.Sleep(duration)
-			
+
 			// Signal that we're ending the test intentionally
 			close(testEnding)
-			
+
 			// Close all data connections first - this signals server to stop reading
 			// and ensures all data is accounted for before we request results
 			for _, conn := range connections {
 				conn.Close()
 			}
-			
+
 			// Wait for data goroutines to finish
 			wg.Wait()
-			
+
 			// Wait a bit more for server side to finish processing
 			time.Sleep(200 * time.Millisecond)
-			
+
 			// Now request results - server has finished counting all data
 			requestServerResults(test, ctrlConn, duration)
 			ctrlConn.Close()
-			
+
 			// Now signal that test should stop
 			toStop <- timeout
 		}()
@@ -656,7 +656,7 @@ func requestServerResults(test *ethrTest, ctrlConn net.Conn, duration time.Durat
 	}
 
 	ui.printDbg("Requesting results from server...")
-	
+
 	// Send test end message
 	ethrMsg := createCtrlTestEndMsg()
 	err := sendSessionMsg(ctrlConn, ethrMsg)
@@ -670,22 +670,22 @@ func requestServerResults(test *ethrTest, ctrlConn net.Conn, duration time.Durat
 	// Receive server results
 	ethrMsg = recvSessionMsg(ctrlConn)
 	ui.printDbg("Received message type: %v", ethrMsg.Type)
-	
+
 	if ethrMsg.Type == EthrCtrlResults && ethrMsg.CtrlResults != nil {
 		test.ctrlResults = ethrMsg.CtrlResults
-		
+
 		// Calculate duration in seconds
 		durationSecs := duration.Seconds()
 		if durationSecs < 1 {
 			durationSecs = 1
 		}
-		
+
 		// Check if this is a CPS test
 		if test.testID.Type == Cps {
 			// CPS-specific summary
 			clientTotalCps := atomic.LoadUint64(&test.testResult.totalCps)
 			serverTotalCps := test.ctrlResults.Connections
-			
+
 			ui.printMsg("- - - - - - - - - - - - - - - - - - - - - - - - -")
 			ui.printMsg("[ ID]   Interval        Conn/s")
 			ui.printMsg("[SUM]   0.00-%.2f sec   %s  sender",
@@ -696,29 +696,29 @@ func requestServerResults(test *ethrTest, ctrlConn net.Conn, duration time.Durat
 				cpsToString(uint64(float64(serverTotalCps)/durationSecs)))
 			return
 		}
-		
+
 		// Get client-side totals for bandwidth/PPS tests
 		clientTotalBw := atomic.LoadUint64(&test.testResult.totalBw)
 		clientTotalPps := atomic.LoadUint64(&test.testResult.totalPps)
 		serverTotalBw := test.ctrlResults.Bandwidth
 		serverTotalPps := test.ctrlResults.Packets
-		
+
 		// Display iPerf3-style summary for bandwidth tests
 		ui.printMsg("- - - - - - - - - - - - - - - - - - - - - - - - -")
 		ui.printMsg("[ ID]   Interval        Transfer     Bitrate")
-		
+
 		// Sender line (client's transmitted data)
 		ui.printMsg("[SUM]   0.00-%.2f sec   %s    %s  sender",
 			durationSecs,
 			bytesToString(clientTotalBw),
 			bytesToRate(uint64(float64(clientTotalBw)/durationSecs)))
-		
+
 		// Receiver line (server's received data)
 		ui.printMsg("[SUM]   0.00-%.2f sec   %s    %s  receiver",
 			durationSecs,
 			bytesToString(serverTotalBw),
 			bytesToRate(uint64(float64(serverTotalBw)/durationSecs)))
-		
+
 		// For UDP tests, also show packet stats
 		if test.testID.Protocol == UDP && (clientTotalPps > 0 || serverTotalPps > 0) {
 			lostPkts := uint64(0)
@@ -1061,11 +1061,11 @@ func tcpRunCpsTestWithCtrl(test *ethrTest, toStop chan int, duration time.Durati
 	// Phase 3: Wait for duration, then signal test end via control channel
 	if duration > 0 {
 		time.Sleep(duration)
-		
+
 		// Request results from server before stopping
 		requestServerResults(test, ctrlConn, duration)
 		ctrlConn.Close()
-		
+
 		// Signal test completion - runTest() will close test.done
 		toStop <- timeout
 	}
@@ -1142,12 +1142,12 @@ func tcpRunPing(test *ethrTest, prefix string) (timeTaken time.Duration, err err
 	remoteAddr := fmt.Sprintf("[%s]:%s", rserver, rport)
 	ui.printMsg("[tcp] %sConnection from %s to %s, Time: %s",
 		prefix, localAddr, remoteAddr, durationToString(timeTaken))
-	
+
 	// Send successful ping to hub callback (only for non-warmup pings)
 	if hubPingCallback != nil && hubActiveTest != nil && prefix == "" {
 		hubPingCallback(localAddr, remoteAddr, TCP, timeTaken, nil, hubActiveTest)
 	}
-	
+
 	tcpconn, ok := conn.(*net.TCPConn)
 	if ok {
 		tcpconn.SetLinger(0)
@@ -1338,12 +1338,12 @@ func icmpRunPing(test *ethrTest, prefix string) (time.Duration, error) {
 	}
 	ui.printMsg("[icmp] %sPing to %s: %s",
 		prefix, test.dialAddr, durationToString(hopData.last))
-	
+
 	// Send successful ping to hub callback (only for non-warmup pings)
 	if hubPingCallback != nil && hubActiveTest != nil && prefix == "" {
 		hubPingCallback("", test.dialAddr, ICMP, hopData.last, nil, hubActiveTest)
 	}
-	
+
 	return hopData.last, nil
 }
 
@@ -1729,12 +1729,12 @@ func runUDPBandwidthAndPpsTestWithCtrl(test *ethrTest, toStop chan int, duration
 		ui.printDbg("Large UDP packets may be fragmented and dropped, especially over virtual networks (WSL, VMs, VPNs).")
 		ui.printDbg("If you see no traffic on the server, try reducing buffer size with: -l 1400 or smaller.")
 	}
-	
+
 	// Phase 1: Create UDP connections first so we know their source ports
 	numThreads := test.clientParam.NumThreads
 	udpConns := make([]net.Conn, 0, numThreads)
 	udpPorts := make([]int, 0, numThreads)
-	
+
 	for th := uint32(0); th < numThreads; th++ {
 		conn, err := ethrDialInc(UDP, test.dialAddr, uint16(th))
 		if err != nil {
@@ -1747,16 +1747,16 @@ func runUDPBandwidthAndPpsTestWithCtrl(test *ethrTest, toStop chan int, duration
 			return
 		}
 		udpConns = append(udpConns, conn)
-		
+
 		// Extract local port
 		_, lportStr, _ := net.SplitHostPort(conn.LocalAddr().String())
 		var lport int
 		fmt.Sscanf(lportStr, "%d", &lport)
 		udpPorts = append(udpPorts, lport)
 	}
-	
+
 	ui.printDbg("Created %d UDP connections to %s with local ports: %v", len(udpPorts), test.dialAddr, udpPorts)
-	
+
 	// Phase 2: Establish TCP control connection
 	ctrlConn, err := ethrDial(TCP, test.dialAddr)
 	if err != nil {
@@ -1859,7 +1859,7 @@ func runUDPBandwidthAndPpsTestWithCtrl(test *ethrTest, toStop chan int, duration
 	// Phase 3: Start UDP data transfer using pre-created connections
 	test.startTime = startTime
 	startStatsTimerAt(startTime)
-	
+
 	// Run UDP test with pre-created connections
 	runUDPBandwidthWithConns(test, udpConns)
 
