@@ -145,6 +145,16 @@ func parseDurationToTime(durationStr string) time.Duration {
 	return 10 * time.Second // default
 }
 
+// formatBufferSize formats a buffer size in bytes to a human-readable string
+func formatBufferSize(bytes uint32) string {
+	if bytes >= 1024*1024 {
+		return fmt.Sprintf("%dMB", bytes/(1024*1024))
+	} else if bytes >= 1024 {
+		return fmt.Sprintf("%dKB", bytes/1024)
+	}
+	return fmt.Sprintf("%dB", bytes)
+}
+
 type TestResult struct {
 	Timestamp time.Time `json:"timestamp"`
 	Source    string    `json:"source"` // "client", "server", or "external"
@@ -1323,22 +1333,43 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 				testTypeStr = "mytraceroute"
 			}
 
-			bufferSize := fmt.Sprintf("%dKB", test.clientParam.BufferSize/1024)
-			bandwidth := "unlimited"
-			if test.clientParam.BwRate > 0 {
-				bandwidth = fmt.Sprintf("%d bps", test.clientParam.BwRate)
-			}
+			// Only include test params if we have meaningful data from the client handshake
+			// (when NoControlChannel is used, we won't have this info)
+			hasClientParams := test.clientParam.NumThreads > 0 || test.clientParam.BufferSize > 0 || test.clientParam.Duration > 0
 
-			result.TestParams = &TestParameters{
-				TestType:    testTypeStr,
-				Protocol:    protoToString(proto),
-				Threads:     int(test.clientParam.NumThreads),
-				BufferSize:  bufferSize,
-				Duration:    int(test.clientParam.Duration.Seconds()),
-				Bandwidth:   bandwidth,
-				Reverse:     test.clientParam.Reverse,
-				Destination: remoteAddr, // Client's IP from server's perspective
-				ClientName:  remoteAddr, // Use client IP as name from server perspective
+			if hasClientParams {
+				bufferSize := formatBufferSize(test.clientParam.BufferSize)
+				bandwidth := "unlimited"
+				if test.clientParam.BwRate > 0 {
+					bandwidth = fmt.Sprintf("%d bps", test.clientParam.BwRate)
+				}
+
+				result.TestParams = &TestParameters{
+					TestType:    testTypeStr,
+					Protocol:    protoToString(proto),
+					Threads:     int(test.clientParam.NumThreads),
+					BufferSize:  bufferSize,
+					Duration:    int(test.clientParam.Duration.Seconds()),
+					Bandwidth:   bandwidth,
+					Reverse:     test.clientParam.Reverse,
+					Destination: remoteAddr, // Client's IP from server's perspective
+					ClientName:  remoteAddr, // Use client IP as name from server perspective
+				}
+			} else {
+				// No client params from handshake - provide server-side defaults
+				// PPS tests always use 1 byte buffer
+				serverBufferSize := ""
+				if testType == Pps {
+					serverBufferSize = "1B"
+				}
+
+				result.TestParams = &TestParameters{
+					TestType:    testTypeStr,
+					Protocol:    protoToString(proto),
+					BufferSize:  serverBufferSize,
+					ClientName:  remoteAddr,
+					Destination: remoteAddr,
+				}
 			}
 		}
 
@@ -1539,6 +1570,11 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, canc
 		if bufferSize == 0 {
 			bufferSize = 16 * 1024 // Fallback to default
 		}
+	}
+
+	// For Pkt/s tests, always override buffer size to 1 byte (matching CLI behavior)
+	if testType == Pps {
+		bufferSize = 1
 	}
 
 	bwRate := uint64(0) // Default unlimited

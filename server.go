@@ -110,7 +110,6 @@ func getSessionStatsByUDPAddr(remoteAddr string, port int) *sessionStats {
 	gUDPPortOnlyToSessionLock.RUnlock()
 
 	if found {
-		ui.printDbg("UDP packet matched via port-only lookup (NAT scenario): port %d -> session %s", port, sessionID)
 		return getSessionStatsByID(sessionID)
 	}
 
@@ -321,6 +320,13 @@ func trySyncStartWithClient(test *ethrTest, conn net.Conn) (isControlChannel boo
 			if test.sessionID != sessionID {
 				test.startTime = time.Time{}
 				test.sessionID = sessionID
+				// Reset test stats for the new session
+				atomic.StoreUint64(&test.testResult.bw, 0)
+				atomic.StoreUint64(&test.testResult.pps, 0)
+				atomic.StoreUint64(&test.testResult.cps, 0)
+				atomic.StoreUint64(&test.testResult.totalBw, 0)
+				atomic.StoreUint64(&test.testResult.totalPps, 0)
+				atomic.StoreUint64(&test.testResult.totalCps, 0)
 			}
 		}
 		test.ctrlConn = conn
@@ -438,6 +444,7 @@ func handleControlChannel(test *ethrTest, sessionID string, conn net.Conn) {
 		case EthrCtrlTestEnd:
 			// Mark test as dormant immediately to prevent stats from being printed
 			test.isDormant = true
+			test.ctrlConn = nil // Clear control connection for proper cleanup and next test
 
 			// Client signals test end - send our cumulative results
 			// For UDP with session tracking, use session stats; otherwise use test stats
@@ -673,11 +680,17 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 		// For multi-client support, we track UDP stats per client IP
 		// The UDP packets will arrive from the same IP but possibly different ports
 		// We use IP-only lookup since UDP "connection" uses a different source port than control channel
-		udpTest, _ := createOrGetTest(server, UDP, All)
+		udpTest, isNewUDP := createOrGetTest(server, UDP, All)
 		if udpTest == nil {
 			ui.printDbg("Failed to create UDP test for control channel")
 			return
 		}
+		ui.printDbg("UDP control channel: got test (isNew=%v, isDormant=%v, sessionID=%s)", 
+			isNewUDP, udpTest.isDormant, udpTest.sessionID)
+
+		// Update UDP test with actual test type and client parameters from handshake
+		udpTest.testID = testID
+		udpTest.clientParam = clientParam
 
 		// For multi-client from same IP: DON'T reset totals here
 		// Each client's stats are added to the shared test object
@@ -685,6 +698,8 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 		// TODO: For true per-client tracking, embed session ID in UDP packets
 
 		isCtrl, udpSessionID, err := trySyncStartWithClient(udpTest, conn)
+		ui.printDbg("UDP control channel: after trySyncStart (isCtrl=%v, isDormant=%v, err=%v)", 
+			isCtrl, udpTest.isDormant, err)
 		if err != nil {
 			ui.printDbg("Failed to synchronize start time with UDP test client. Error: %v", err)
 			safeDeleteTest(udpTest)
@@ -975,7 +990,6 @@ func srvrRunUDPPacketHandler(conn *net.UDPConn) {
 
 		// No session match found - accept traffic anyway and track by IP
 		// This handles NAT scenarios and -ncc (no control channel) mode
-		ui.printDbg("UDP packet from %s:%s - no session match, using IP-based tracking", server, portStr)
 		ethrUnused(portStr)
 		test, found := tests[server]
 		if !found {
