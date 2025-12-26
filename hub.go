@@ -1181,200 +1181,133 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 		Metadata:  map[string]interface{}{"status": "starting", "port": cmd.Port},
 	}, false)
 
-	// Set up callback to receive stats from ethr's stats system
-	var testParamsSent = make(map[string]bool)  // Track if we've sent params for this remote addr
-	var intervalCounters = make(map[string]int) // Track interval counter per remote addr
-	var lastSessionID = make(map[string]string) // Track session ID for deterministic new test detection
+	// Set up callback for new client connections (control channel mode)
+	// This is called by server.go when a new control channel is established
+	hubNewClientCallback = func(remoteAddr string, proto EthrProtocol, testType EthrTestType, test *ethrTest) {
+		// Build test type string
+		testTypeStr := "bandwidth"
+		switch testType {
+		case Bandwidth:
+			testTypeStr = "bandwidth"
+		case Cps:
+			testTypeStr = "cps"
+		case Pps:
+			testTypeStr = "pps"
+		case Latency:
+			testTypeStr = "latency"
+		case Ping:
+			testTypeStr = "ping"
+		case TraceRoute:
+			testTypeStr = "traceroute"
+		case MyTraceRoute:
+			testTypeStr = "mytraceroute"
+		}
 
-	hubStatsCallback = func(remoteAddr string, proto EthrProtocol, testType EthrTestType,
-		bw, cps, pps uint64, latencyStats *LatencyStats, hops []ethrHopData, test *ethrTest) {
-		newTestDetected := false
+		// Build test parameters from clientParam received in handshake
+		var params *TestParameters
+		hasClientParams := test != nil && (test.clientParam.NumThreads > 0 || test.clientParam.BufferSize > 0 || test.clientParam.Duration > 0)
 
-		if test != nil {
-			currentSessionID := test.sessionID
-			hasControlChannel := test.ctrlConn != nil || currentSessionID != ""
-
-			// DETERMINISTIC: Use sessionID if control channel exists
-			if hasControlChannel {
-				prevSessionID := lastSessionID[remoteAddr]
-				if prevSessionID != "" && prevSessionID != currentSessionID {
-					newTestDetected = true
-					ui.printDbg("New test session detected for %s (sessionID changed: %s -> %s)",
-						remoteAddr, prevSessionID, currentSessionID)
-				}
-				lastSessionID[remoteAddr] = currentSessionID
-			} else {
-				// HEURISTICS: Fall back to multiple detection methods for -ncc mode
-				// 1. Test type or protocol changed (different test started)
-				// 2. Test start time changed (same test type restarted)
-
-				currentStartTime := test.startTime
-				prevSessionID := lastSessionID[remoteAddr]
-
-				// Check if test pointer changed
-				if prevSessionID != "" && lastSessionID[remoteAddr] != "" {
-					// We've seen this client before (in -ncc mode)
-
-					// Check if test type or protocol changed
-					if test.testID.Type != 0 { // Valid test type
-						key := fmt.Sprintf("%s_%d_%d", remoteAddr, test.testID.Type, test.testID.Protocol)
-						prevKey := lastSessionID[remoteAddr]
-						if prevKey != "" && prevKey != key {
-							newTestDetected = true
-							ui.printDbg("New test session detected for %s (test type/protocol changed in -ncc mode)", remoteAddr)
-						}
-						lastSessionID[remoteAddr] = key
-					}
-
-					// Check if test start time changed (test restarted with same type)
-					if !currentStartTime.IsZero() {
-						startTimeKey := fmt.Sprintf("start_%s_%d", remoteAddr, currentStartTime.Unix())
-						if lastSessionID[remoteAddr] != startTimeKey {
-							newTestDetected = true
-							ui.printDbg("New test session detected for %s (start time changed in -ncc mode)", remoteAddr)
-						}
-						lastSessionID[remoteAddr] = startTimeKey
-					}
-				} else {
-					// First time seeing this client in -ncc mode
-					lastSessionID[remoteAddr] = fmt.Sprintf("init_%s", remoteAddr)
-				}
+		if hasClientParams {
+			bufferSize := formatBufferSize(test.clientParam.BufferSize)
+			bandwidth := "unlimited"
+			if test.clientParam.BwRate > 0 {
+				bandwidth = fmt.Sprintf("%d bps", test.clientParam.BwRate)
 			}
 
-			// Reset counters if new test detected
-			if newTestDetected {
-				intervalCounters[remoteAddr] = 0
-				testParamsSent[remoteAddr] = false
+			params = &TestParameters{
+				TestType:    testTypeStr,
+				Protocol:    protoToString(proto),
+				Threads:     int(test.clientParam.NumThreads),
+				BufferSize:  bufferSize,
+				Duration:    int(test.clientParam.Duration.Seconds()),
+				Bandwidth:   bandwidth,
+				Reverse:     test.clientParam.Reverse,
+				Destination: remoteAddr,
+				ClientName:  remoteAddr,
+			}
+		} else {
+			// No client params from handshake - provide server-side defaults
+			serverBufferSize := ""
+			if testType == Pps {
+				serverBufferSize = "1B"
+			}
+
+			params = &TestParameters{
+				TestType:    testTypeStr,
+				Protocol:    protoToString(proto),
+				BufferSize:  serverBufferSize,
+				ClientName:  remoteAddr,
+				Destination: remoteAddr,
 			}
 		}
 
-		// Get or initialize interval counter for this client
-		intervalCounters[remoteAddr]++
-		interval := intervalCounters[remoteAddr]
+		// Send client_params result
+		sendResult(serverURL, sessionId, TestResult{
+			Timestamp:  time.Now(),
+			Source:     remoteAddr, // Client IP address
+			Type:       "client_params",
+			Protocol:   protoToString(proto),
+			TestParams: params,
+		}, false)
+	}
+
+	// Set up callback to receive stats from ethr's stats system
+	hubStatsCallback = func(remoteAddr string, proto EthrProtocol, testType EthrTestType,
+		bw, cps, pps uint64, latencyStats *LatencyStats, hops []ethrHopData, test *ethrTest) {
+
+		const notApplicable = ^uint64(0) // MaxUint64 means "not applicable"
 
 		result := TestResult{
 			Timestamp: time.Now(),
-			Source:    "server",
+			Source:    remoteAddr, // Client IP address
 			Protocol:  protoToString(proto),
+			Type:      "interval",
 		}
 
-		// Handle different test types
-		switch testType {
-		case Bandwidth:
+		// Populate metrics - MaxUint64 means "not applicable", other values (including 0) are valid
+		if bw != notApplicable {
 			bps := int64(bw * 8) // Convert bytes/sec to bits/sec
-			bytes := int64(bw)   // Bytes transferred in this second
-			pkts := int64(pps)
-
-			result.Type = "interval"
-			result.Interval = &interval
+			bytes := int64(bw)
 			result.BitsPerSec = &bps
 			result.BytesTransferred = &bytes
-			result.PacketsPerSec = &pkts
+		}
 
-		case Cps:
+		if cps != notApplicable {
 			cpsVal := int64(cps)
-			result.Type = "interval"
-			result.Interval = &interval
 			result.ConnectionsPerSec = &cpsVal
+		}
 
-		case Pps:
-			bps := int64(bw * 8)
+		if pps != notApplicable {
 			pkts := int64(pps)
-			result.Type = "interval"
-			result.Interval = &interval
-			result.BitsPerSec = &bps
 			result.PacketsPerSec = &pkts
-
-		case Latency:
-			if latencyStats != nil {
-				avgMs := float64(latencyStats.Avg.Microseconds()) / 1000.0
-				minMs := float64(latencyStats.Min.Microseconds()) / 1000.0
-				maxMs := float64(latencyStats.Max.Microseconds()) / 1000.0
-				p50Ms := float64(latencyStats.P50.Microseconds()) / 1000.0
-				p90Ms := float64(latencyStats.P90.Microseconds()) / 1000.0
-				p95Ms := float64(latencyStats.P95.Microseconds()) / 1000.0
-				p99Ms := float64(latencyStats.P99.Microseconds()) / 1000.0
-				p999Ms := float64(latencyStats.P999.Microseconds()) / 1000.0
-				p9999Ms := float64(latencyStats.P9999.Microseconds()) / 1000.0
-
-				result.Type = "latency"
-				result.LatencyAvg = &avgMs
-				result.LatencyMin = &minMs
-				result.LatencyMax = &maxMs
-				result.LatencyP50 = &p50Ms
-				result.LatencyP90 = &p90Ms
-				result.LatencyP95 = &p95Ms
-				result.LatencyP99 = &p99Ms
-				result.LatencyP999 = &p999Ms
-				result.LatencyP9999 = &p9999Ms
-			}
 		}
 
-		// Include test parameters from client on first interval for each remote address
-		if test != nil && !testParamsSent[remoteAddr] {
-			testParamsSent[remoteAddr] = true
+		if latencyStats != nil {
+			result.Type = "latency"
+			avgMs := float64(latencyStats.Avg.Microseconds()) / 1000.0
+			minMs := float64(latencyStats.Min.Microseconds()) / 1000.0
+			maxMs := float64(latencyStats.Max.Microseconds()) / 1000.0
+			p50Ms := float64(latencyStats.P50.Microseconds()) / 1000.0
+			p90Ms := float64(latencyStats.P90.Microseconds()) / 1000.0
+			p95Ms := float64(latencyStats.P95.Microseconds()) / 1000.0
+			p99Ms := float64(latencyStats.P99.Microseconds()) / 1000.0
+			p999Ms := float64(latencyStats.P999.Microseconds()) / 1000.0
+			p9999Ms := float64(latencyStats.P9999.Microseconds()) / 1000.0
 
-			// Build test parameters from clientParam received in handshake
-			testTypeStr := "bandwidth"
-			switch testType {
-			case Bandwidth:
-				testTypeStr = "bandwidth"
-			case Cps:
-				testTypeStr = "cps"
-			case Pps:
-				testTypeStr = "pps"
-			case Latency:
-				testTypeStr = "latency"
-			case Ping:
-				testTypeStr = "ping"
-			case TraceRoute:
-				testTypeStr = "traceroute"
-			case MyTraceRoute:
-				testTypeStr = "mytraceroute"
-			}
-
-			// Only include test params if we have meaningful data from the client handshake
-			// (when NoControlChannel is used, we won't have this info)
-			hasClientParams := test.clientParam.NumThreads > 0 || test.clientParam.BufferSize > 0 || test.clientParam.Duration > 0
-
-			if hasClientParams {
-				bufferSize := formatBufferSize(test.clientParam.BufferSize)
-				bandwidth := "unlimited"
-				if test.clientParam.BwRate > 0 {
-					bandwidth = fmt.Sprintf("%d bps", test.clientParam.BwRate)
-				}
-
-				result.TestParams = &TestParameters{
-					TestType:    testTypeStr,
-					Protocol:    protoToString(proto),
-					Threads:     int(test.clientParam.NumThreads),
-					BufferSize:  bufferSize,
-					Duration:    int(test.clientParam.Duration.Seconds()),
-					Bandwidth:   bandwidth,
-					Reverse:     test.clientParam.Reverse,
-					Destination: remoteAddr, // Client's IP from server's perspective
-					ClientName:  remoteAddr, // Use client IP as name from server perspective
-				}
-			} else {
-				// No client params from handshake - provide server-side defaults
-				// PPS tests always use 1 byte buffer
-				serverBufferSize := ""
-				if testType == Pps {
-					serverBufferSize = "1B"
-				}
-
-				result.TestParams = &TestParameters{
-					TestType:    testTypeStr,
-					Protocol:    protoToString(proto),
-					BufferSize:  serverBufferSize,
-					ClientName:  remoteAddr,
-					Destination: remoteAddr,
-				}
-			}
+			result.LatencyAvg = &avgMs
+			result.LatencyMin = &minMs
+			result.LatencyMax = &maxMs
+			result.LatencyP50 = &p50Ms
+			result.LatencyP90 = &p90Ms
+			result.LatencyP95 = &p95Ms
+			result.LatencyP99 = &p99Ms
+			result.LatencyP999 = &p999Ms
+			result.LatencyP9999 = &p9999Ms
 		}
 
-		// Send result if it has meaningful data
-		if result.Type != "" {
+		// Send result if it has any data
+		if result.BitsPerSec != nil || result.ConnectionsPerSec != nil || 
+		   result.PacketsPerSec != nil || result.LatencyAvg != nil {
 			sendResult(serverURL, sessionId, result, false)
 		}
 	}
@@ -1396,6 +1329,7 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 	case err := <-serverDone:
 		hubStatsCallback = nil
 		hubPingCallback = nil
+		hubNewClientCallback = nil
 		if err != nil {
 			// Server failed to start or encountered an error
 			ui.printMsg("Server failed: %v", err)
@@ -1439,6 +1373,7 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, canc
 
 		hubStatsCallback = nil
 		hubPingCallback = nil
+		hubNewClientCallback = nil
 		sendResult(serverURL, sessionId, TestResult{
 			Timestamp: time.Now(),
 			Source:    "server",

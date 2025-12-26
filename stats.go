@@ -163,8 +163,16 @@ var lastStatsTime time.Time = time.Now()
 var hubStatsCallback func(remoteAddr string, proto EthrProtocol, testType EthrTestType,
 	bw, cps, pps uint64, latencyStats *LatencyStats, hops []ethrHopData, test *ethrTest)
 
+// Simple callback for server mode - receives the same row data that's printed to console
+// row contains: [remoteIP, proto, bwStr, cpsStr, ppsStr, latStr]
+var hubServerResultCallback func(row []string)
+
 // Callback for individual ping results
 var hubPingCallback func(localAddr, remoteAddr string, proto EthrProtocol, latency time.Duration, err error, test *ethrTest)
+
+// Callback for new client control channel connections (server mode)
+// Called when a new client connects with a control channel, before any stats are sent
+var hubNewClientCallback func(remoteAddr string, proto EthrProtocol, testType EthrTestType, test *ethrTest)
 
 // Active test for hub mode - used by emitLatencyResults to find the test
 // when the test lookup by session fails (e.g., external mode)

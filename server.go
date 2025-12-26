@@ -434,16 +434,23 @@ func handleControlChannel(test *ethrTest, sessionID string, conn net.Conn) {
 		ethrMsg := recvSessionMsg(conn)
 		if ethrMsg.Type == EthrInv {
 			// Connection closed or error - client disconnected unexpectedly
-			ui.printDbg("Control channel: received invalid/closed connection, clearing control channel and marking dormant")
-			test.isDormant = true
+			ui.printDbg("Control channel: received invalid/closed connection, clearing control channel")
+			// Only mark dormant if this is the last reference to the test
+			// Other clients from the same IP might still be using it
+			if atomic.LoadInt32(&test.refCount) <= 1 {
+				test.isDormant = true
+			}
 			test.ctrlConn = nil // Clear control connection so cleanup goroutine can remove this test
 			return
 		}
 
 		switch ethrMsg.Type {
 		case EthrCtrlTestEnd:
-			// Mark test as dormant immediately to prevent stats from being printed
-			test.isDormant = true
+			// Only mark test as dormant if this is the last reference
+			// Other clients from the same IP might still have active tests
+			if atomic.LoadInt32(&test.refCount) <= 1 {
+				test.isDormant = true
+			}
 			test.ctrlConn = nil // Clear control connection for proper cleanup and next test
 
 			// Client signals test end - send our cumulative results
@@ -643,6 +650,10 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 				// This is a control channel - reset cumulative totals for new test session
 				atomic.StoreUint64(&test.testResult.totalBw, 0)
 				atomic.StoreUint64(&test.testResult.totalPps, 0)
+				// Notify hub about new client connection (for server mode UI)
+				if hubNewClientCallback != nil {
+					hubNewClientCallback(server, TCP, Bandwidth, test)
+				}
 				// Handle control protocol, don't run bandwidth test
 				// handleControlChannel blocks until client sends test end
 				// Pass the session ID directly - don't use test.sessionID which is shared
@@ -663,6 +674,10 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 				// This is a control channel for CPS test - handle control protocol
 				// Reset CPS counter for new test session
 				atomic.StoreUint64(&test.testResult.cps, 0)
+				// Notify hub about new client connection (for server mode UI)
+				if hubNewClientCallback != nil {
+					hubNewClientCallback(server, TCP, Cps, test)
+				}
 				handleControlChannel(test, ctrlSessionID, conn)
 				return
 			}
@@ -707,6 +722,11 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 		}
 
 		if isCtrl {
+			// Notify hub about new client connection (for server mode UI)
+			// Use the actual test type from testID (Pps or Bandwidth)
+			if hubNewClientCallback != nil {
+				hubNewClientCallback(server, UDP, testID.Type, udpTest)
+			}
 			// Control channel mode - handleControlChannel runs in this goroutine
 			// to keep the connection open (defer conn.Close() would close it otherwise)
 			handleControlChannel(udpTest, udpSessionID, conn)

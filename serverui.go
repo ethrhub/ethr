@@ -488,17 +488,24 @@ func getTestResults(s *ethrSession, proto EthrProtocol, seconds float64) []strin
 		}
 
 		// Call hub callback if registered (for hub integration mode)
+		// Send the same metrics we're displaying in console
+		// Pass bwTestOn/cpsTestOn/ppsTestOn as high bit flags in the values
+		// Use MaxUint64 as "not applicable" marker, actual values (including 0) are valid
 		if hubStatsCallback != nil {
-			// Determine which test type is active based on what metrics are available
-			testType := Bandwidth
-			if cpsTestOn && cps > 0 {
-				testType = Cps
-			} else if ppsTestOn && pps > 0 {
-				testType = Pps
-			} else if latTestOn && latency > 0 {
-				testType = Latency
+			const notApplicable = ^uint64(0) // MaxUint64
+			hubBw := notApplicable
+			hubCps := notApplicable
+			hubPps := notApplicable
+			if bwTestOn {
+				hubBw = bw
 			}
-			hubStatsCallback(s.remoteIP, proto, testType, bw, cps, pps, nil, nil, test)
+			if cpsTestOn {
+				hubCps = cps
+			}
+			if ppsTestOn {
+				hubPps = pps
+			}
+			hubStatsCallback(s.remoteIP, proto, Bandwidth, hubBw, hubCps, hubPps, nil, nil, test)
 		}
 
 		str := []string{s.remoteIP, protoToString(proto),
