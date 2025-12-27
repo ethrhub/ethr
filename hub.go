@@ -266,6 +266,7 @@ var gracefulCompletions sync.Map // sessionId -> bool
 var serverTestMutex sync.Mutex
 
 // Token persistence helpers - per-hub storage
+// Legacy directory for migration
 func getTokensDir() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -291,30 +292,9 @@ func getTokenFilePath(serverURL string) string {
 	return fmt.Sprintf("%s/%s.json", dir, hubId)
 }
 
-func ensureTokensDir() error {
-	dir := getTokensDir()
-	return os.MkdirAll(dir, 0700)
-}
-
+// saveTokens stores tokens using secure storage (keyring with encrypted file fallback)
 func saveTokens(serverURL, accessToken, refreshToken string, expiresIn int) error {
-	if err := ensureTokensDir(); err != nil {
-		return err
-	}
-
-	tokenData := map[string]interface{}{
-		"hub_url":       serverURL,
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"expires_at":    time.Now().Add(time.Duration(expiresIn) * time.Second).Unix(),
-		"saved_at":      time.Now().Unix(),
-	}
-
-	data, err := json.MarshalIndent(tokenData, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(getTokenFilePath(serverURL), data, 0600)
+	return storage.Save(serverURL, accessToken, refreshToken, expiresIn)
 }
 
 // acquireTokenLock acquires an exclusive lock on the token file to prevent
@@ -368,60 +348,19 @@ func releaseTokenLock(lockPath string) {
 	}
 }
 
+// loadTokens retrieves tokens from secure storage (keyring with encrypted file fallback)
 func loadTokens(serverURL string) (accessToken, refreshToken string, expiresAt time.Time, err error) {
-	data, err := os.ReadFile(getTokenFilePath(serverURL))
-	if err != nil {
-		return "", "", time.Time{}, err
-	}
-
-	var tokenData map[string]interface{}
-	if err := json.Unmarshal(data, &tokenData); err != nil {
-		return "", "", time.Time{}, err
-	}
-
-	accessToken, _ = tokenData["access_token"].(string)
-	refreshToken, _ = tokenData["refresh_token"].(string)
-	expiresAtUnix, _ := tokenData["expires_at"].(float64)
-	expiresAt = time.Unix(int64(expiresAtUnix), 0)
-
-	return accessToken, refreshToken, expiresAt, nil
+	return storage.Load(serverURL)
 }
 
+// clearTokens removes tokens from secure storage
 func clearTokens(serverURL string) {
-	os.Remove(getTokenFilePath(serverURL))
+	storage.Clear(serverURL)
 }
 
+// listSavedHubs returns all saved hub URLs from secure storage
 func listSavedHubs() ([]string, error) {
-	dir := getTokensDir()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
-		return nil, err
-	}
-
-	var hubs []string
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
-			filePath := fmt.Sprintf("%s/%s", dir, entry.Name())
-			data, err := os.ReadFile(filePath)
-			if err != nil {
-				continue
-			}
-
-			var tokenData map[string]interface{}
-			if err := json.Unmarshal(data, &tokenData); err != nil {
-				continue
-			}
-
-			if hubURL, ok := tokenData["hub_url"].(string); ok {
-				hubs = append(hubs, hubURL)
-			}
-		}
-	}
-
-	return hubs, nil
+	return storage.ListHubs()
 }
 
 func tryRefreshToken(serverURL string, refreshToken string) (*TokenResponse, error) {

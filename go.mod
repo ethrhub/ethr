@@ -8,8 +8,13 @@ require (
 )
 
 require (
+	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
+	github.com/danieljoos/wincred v1.2.2 // indirect
+	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/zalando/go-keyring v0.2.6 // indirect
+	golang.org/x/crypto v0.46.0 // indirect
 )
 
 go 1.24.0
