@@ -188,7 +188,7 @@ func IsAdmin() bool {
 }
 
 func SetTClass(fd uintptr, tos int) {
-	setSockOptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_TCLASS, tos)
+	_ = setSockOptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_TCLASS, tos)
 }
 
 // WinIcmpProbe is a stub for Linux - Windows ICMP API is not available
