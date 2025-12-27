@@ -105,17 +105,15 @@ const (
 	AF_INET6 = 23
 )
 
-func getTCPStats(stats *ethrNetStat) (errcode error) {
+func getTCPStats(stats *ethrNetStat) {
 	tcpStats := &mib_tcpstats{}
 	r0, _, _ := syscall.Syscall(proc_get_tcp_statistics_ex.Addr(), 2,
 		uintptr(unsafe.Pointer(tcpStats)), uintptr(AF_INET), 0)
 
 	if r0 != 0 {
-		errcode = syscall.Errno(r0)
 		return
 	}
 	stats.tcpStats.segRetrans = uint64(tcpStats.DwRetransSegs)
-	return
 }
 
 type guid struct {
@@ -177,9 +175,7 @@ type mibIfRow2 struct {
 }
 
 func getIfEntry2(ifIndex uint32) (mibIfRow2, error) {
-	var res *mibIfRow2
-
-	res = &mibIfRow2{InterfaceIndex: ifIndex}
+	res := &mibIfRow2{InterfaceIndex: ifIndex}
 	r0, _, _ := syscall.Syscall(proc_get_if_entry2.Addr(), 1,
 		uintptr(unsafe.Pointer(res)), 0, 0)
 	if r0 != 0 {
@@ -211,8 +207,8 @@ func blockWindowResize() {
 		return
 	}
 
-	syscall.Syscall(proc_delete_menu.Addr(), 3, sysMenu, SC_MAXIMIZE, MF_BYCOMMAND)
-	syscall.Syscall(proc_delete_menu.Addr(), 3, sysMenu, SC_SIZE, MF_BYCOMMAND)
+	_, _, _ = syscall.Syscall(proc_delete_menu.Addr(), 3, sysMenu, SC_MAXIMIZE, MF_BYCOMMAND)
+	_, _, _ = syscall.Syscall(proc_delete_menu.Addr(), 3, sysMenu, SC_SIZE, MF_BYCOMMAND)
 }
 
 func setSockOptInt(fd uintptr, level, opt, val int) (err error) {
@@ -288,7 +284,7 @@ func WinIcmpSendEcho(destIP string, ttl int, timeout uint32) (string, uint32, ui
 	if handle == 0 || handle == ^uintptr(0) {
 		return "", 0, 0, err
 	}
-	defer syscall.Syscall(proc_icmp_close_handle.Addr(), 1, handle, 0, 0)
+	defer func() { _, _, _ = syscall.Syscall(proc_icmp_close_handle.Addr(), 1, handle, 0, 0) }()
 
 	// Prepare send data
 	sendData := []byte("Ethr ICMP Probe")
@@ -420,7 +416,6 @@ func IsAdmin() bool {
 }
 
 func SetTClass(fd uintptr, tos int) {
-	return
 }
 
 // WinIcmpProbe performs a single ICMP probe using Windows API
