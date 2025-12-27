@@ -1123,9 +1123,7 @@ ExitForLoop:
 			break ExitForLoop
 		default:
 			t0 := time.Now()
-			err, _ := tcpProbe(test, hop+1, gHop[hop].addr, &gHop[hop])
-			if err == nil {
-			}
+			_, _ = tcpProbe(test, hop+1, gHop[hop].addr, &gHop[hop])
 			seq++
 			t1 := time.Since(t0)
 			if t1 < gap {
@@ -1393,9 +1391,7 @@ ExitForLoop:
 			break ExitForLoop
 		default:
 			t0 := time.Now()
-			err, _ := icmpProbe(test, dstIPAddr, time.Second, gHop[hop].addr, &gHop[hop], hop, seq)
-			if err == nil {
-			}
+			_, _ = icmpProbe(test, dstIPAddr, time.Second, gHop[hop].addr, &gHop[hop], hop, seq)
 			seq++
 			t1 := time.Since(t0)
 			if t1 < gap {
@@ -1466,7 +1462,7 @@ func icmpSendMsg(c net.PacketConn, dstIPAddr net.IPAddr, hop, seq int, body stri
 		ui.printErr("Failed to set TTL. Error: %v", err)
 		return start, nil, err
 	}
-	icmpSetTOS(c, int(gTOS))
+	_ = icmpSetTOS(c, int(gTOS))
 
 	err = c.SetDeadline(time.Now().Add(timeout))
 	if err != nil {

@@ -345,7 +345,7 @@ func acquireTokenLock(serverURL string) (string, error) {
 			// If lock file is older than 30 seconds, assume previous process crashed
 			if time.Since(info.ModTime()) > 30*time.Second {
 				ui.printDbg("Removing stale lock file")
-				os.Remove(lockPath)
+				_ = os.Remove(lockPath)
 				continue
 			}
 		}
@@ -363,7 +363,7 @@ func acquireTokenLock(serverURL string) (string, error) {
 // releaseTokenLock releases the lock by removing the lock file
 func releaseTokenLock(lockPath string) {
 	if lockPath != "" {
-		os.Remove(lockPath)
+		_ = os.Remove(lockPath)
 		ui.printDbg("Token lock released")
 	}
 }
