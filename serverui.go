@@ -77,8 +77,8 @@ func initServerTuiInternal() error {
 	}
 
 	tm.SetInputMode(tm.InputEsc | tm.InputMouse)
-	tm.Clear(tm.ColorDefault, tm.ColorDefault)
-	tm.Sync()
+	_ = tm.Clear(tm.ColorDefault, tm.ColorDefault)
+	_ = tm.Sync()
 	tm.Flush()
 	hideCursor()
 	blockWindowResize()
@@ -209,7 +209,7 @@ func (u *serverTui) emitLatencyResults(remote, proto string, avg, min, max, p50,
 }
 
 func (u *serverTui) paint(seconds uint64) {
-	tm.Clear(tm.ColorDefault, tm.ColorDefault)
+	_ = tm.Clear(tm.ColorDefault, tm.ColorDefault)
 	defer tm.Flush()
 	printCenterText(0, 0, u.w, "Ethr (Version: "+gVersion+")", tm.ColorBlack, tm.ColorWhite)
 	printHLineText(u.resX, u.resY-1, u.resW, "Test Results")

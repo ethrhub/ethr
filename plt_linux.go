@@ -30,9 +30,6 @@ type ethrNetDevInfo struct {
 	multicast  uint64
 }
 
-type osStats struct {
-}
-
 func getNetDevStats(stats *ethrNetStat) {
 	ifs, err := net.Interfaces()
 	if err != nil {
@@ -52,8 +49,8 @@ func getNetDevStats(stats *ethrNetStat) {
 	// Pass the header
 	// Inter-|   Receive                                             |  Transmit
 	//  face |bytes packets errs drop fifo frame compressed multicast|bytes packets errs drop fifo colls carrier compressed
-	reader.ReadString('\n')
-	reader.ReadString('\n')
+	_, _ = reader.ReadString('\n')
+	_, _ = reader.ReadString('\n')
 
 	var line string
 	for err == nil {
@@ -145,10 +142,7 @@ func toUInt64(str string) uint64 {
 func isIfUp(ifName string, ifs []net.Interface) bool {
 	for _, ifi := range ifs {
 		if ifi.Name == ifName {
-			if (ifi.Flags & net.FlagUp) != 0 {
-				return true
-			}
-			return false
+			return (ifi.Flags & net.FlagUp) != 0
 		}
 	}
 	return false

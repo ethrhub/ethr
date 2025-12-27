@@ -107,10 +107,8 @@ func startStatsTimer() {
 	statsEnabled = true
 	go func() {
 		for statsEnabled {
-			select {
-			case <-statsTicker.C:
-				emitStats()
-			}
+			<-statsTicker.C
+			emitStats()
 		}
 		statsTicker.Stop()
 	}()
@@ -162,10 +160,6 @@ var lastStatsTime time.Time = time.Now()
 // Extended signature to support all test types and detailed metrics
 var hubStatsCallback func(remoteAddr string, proto EthrProtocol, testType EthrTestType,
 	bw, cps, pps uint64, latencyStats *LatencyStats, hops []ethrHopData, test *ethrTest)
-
-// Simple callback for server mode - receives the same row data that's printed to console
-// row contains: [remoteIP, proto, bwStr, cpsStr, ppsStr, latStr]
-var hubServerResultCallback func(row []string)
 
 // Callback for individual ping results
 var hubPingCallback func(localAddr, remoteAddr string, proto EthrProtocol, latency time.Duration, err error, test *ethrTest)

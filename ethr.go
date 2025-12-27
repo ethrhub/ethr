@@ -584,19 +584,6 @@ func printIterationUsage() {
 		"Default: 1000")
 }
 
-func printNoConnStatUsage() {
-	printFlagUsage("ncs", "",
-		"No per Connection Stats would be printed if this flag is specified.",
-		"This is useful to suppress verbose logging when large number of",
-		"connections are used as specified by -n option for Bandwidth tests.")
-}
-
-func printIgnoreCertUsage() {
-	printFlagUsage("ic", "",
-		"Ignore Certificate is useful for HTTPS tests, for cases where a",
-		"middle box like a proxy is not able to supply a valid Ethr cert.")
-}
-
 func printWarmupUsage() {
 	printFlagUsage("w", "<number>", "Use specified number of iterations for warmup.",
 		"Default: 1")

@@ -125,11 +125,6 @@ func (t *table) addTblHdr() {
 		symbols[middletop], tm.ColorDefault, tm.ColorDefault)
 }
 
-func (t *table) addTblFtr() {
-	t.drawTblRow(symbols[leftbottom], symbols[rightbottom], symbols[horizontal],
-		symbols[middlebottom], tm.ColorDefault, tm.ColorDefault)
-}
-
 func printHLineText(x, y int, w int, text string) {
 	for i := 0; i < w; i++ {
 		tm.SetCell(x+i, y, symbols[horizontal], tm.ColorWhite, tm.ColorDefault)
@@ -181,12 +176,6 @@ func printCenterText(x, y, w int, text string, fg, bg tm.Attribute) {
 	}
 }
 
-func printHLine(x, y int, w int) {
-	for i := 0; i < w; i++ {
-		tm.SetCell(x+i, y, symbols[horizontal], tm.ColorWhite, tm.ColorDefault)
-	}
-}
-
 func printUsageBar(x, y, w int, usage, scale uint64, clr tm.Attribute) {
 	barw := int(math.Log10(float64(uint64((usage + scale - 1) / (scale / 10)))))
 	if barw > w {
@@ -200,13 +189,6 @@ func printUsageBar(x, y, w int, usage, scale uint64, clr tm.Attribute) {
 	for j := 0; j < barw; j++ {
 		tm.SetCell(x+j, y, symbols[box3], clr|tm.AttrBold, clr)
 	}
-}
-
-func printDivider() {
-	ui.printMsg("-----------------------------------------------------------")
-}
-func printDivider2() {
-	ui.printMsg("- - - - - - - - - - - - - - - - - - - - - - - - - - - - - -")
 }
 
 type ethrUI interface {

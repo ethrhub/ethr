@@ -38,8 +38,6 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
-var gIgnoreCert bool
-
 const (
 	done       = 0
 	timeout    = 1
@@ -91,58 +89,6 @@ func handshakeWithServer(test *ethrTest, conn net.Conn) (err error) {
 	if ethrMsg.Type != EthrAck {
 		ui.printDbg("Failed to receive ACK message from Ethr server. Error: %v", err)
 		err = os.ErrInvalid
-	}
-	return
-}
-
-// handshakeWithServerSync performs handshake and synchronizes start time with server
-// Client aligns to server's stats interval timing
-func handshakeWithServerSync(test *ethrTest, conn net.Conn) (startTime time.Time, err error) {
-	// Step 1: Send SYN and receive ACK (existing handshake)
-	ethrMsg := createSynMsg(test.testID, test.clientParam)
-	err = sendSessionMsg(conn, ethrMsg)
-	if err != nil {
-		ui.printDbg("Failed to send SYN message to Ethr server. Error: %v", err)
-		return
-	}
-	ethrMsg = recvSessionMsg(conn)
-	if ethrMsg.Type != EthrAck {
-		ui.printDbg("Failed to receive ACK message from Ethr server. Error: %v", err)
-		err = os.ErrInvalid
-		return
-	}
-
-	// Step 2: Request sync timing from server
-	// Record time BEFORE sending so we can measure RTT
-	sendTime := time.Now()
-	ethrMsg = createSyncStartMsg()
-	err = sendSessionMsg(conn, ethrMsg)
-	if err != nil {
-		ui.printDbg("Failed to send SyncStart message to Ethr server. Error: %v", err)
-		return
-	}
-
-	// Step 3: Receive server's delay until next stats interval
-	ethrMsg = recvSessionMsg(conn)
-	recvTime := time.Now() // Record time AFTER receiving
-	if ethrMsg.Type != EthrSyncReady {
-		ui.printDbg("Failed to receive SyncReady message from Ethr server. Error: %v", err)
-		err = os.ErrInvalid
-		return
-	}
-	delayNs := ethrMsg.SyncReady.DelayNs
-
-	if delayNs == 0 {
-		// Single-client mode: server started immediately after sending
-		// We start immediately after receiving - this is the sync point
-		startTime = recvTime
-	} else {
-		// Multi-client mode: align to server's existing stats timer
-		// Calculate when server's next interval starts accounting for RTT
-		rtt := recvTime.Sub(sendTime)
-		oneWayLatency := rtt / 2
-		startTime = sendTime.Add(oneWayLatency + time.Duration(delayNs))
-		waitUntilTime(startTime)
 	}
 	return
 }
@@ -738,33 +684,6 @@ func requestServerResults(test *ethrTest, ctrlConn net.Conn, duration time.Durat
 	}
 }
 
-func tcpRunBandwidthTest(test *ethrTest, toStop chan int) {
-	var wg sync.WaitGroup
-	tcpRunBanwidthTestThreads(test, &wg)
-	go func(wg *sync.WaitGroup) {
-		wg.Wait()
-		toStop <- disconnect
-	}(&wg)
-}
-
-func tcpRunBanwidthTestThreads(test *ethrTest, wg *sync.WaitGroup) {
-	for th := uint32(0); th < test.clientParam.NumThreads; th++ {
-		conn, err := ethrDialInc(TCP, test.dialAddr, uint16(th))
-		if err != nil {
-			ui.printErr("Error dialing connection: %v", err)
-			continue
-		}
-		err = handshakeWithServer(test, conn)
-		if err != nil {
-			ui.printErr("Failed in handshake with the server. Error: %v", err)
-			conn.Close()
-			continue
-		}
-		wg.Add(1)
-		go runTCPBandwidthTestHandler(test, conn, wg)
-	}
-}
-
 func runTCPBandwidthTestHandler(test *ethrTest, conn net.Conn, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer conn.Close()
@@ -919,7 +838,7 @@ func tcpRunCpsTest(test *ethrTest) {
 						atomic.AddUint64(&test.testResult.totalCps, 1)
 						tcpconn, ok := conn.(*net.TCPConn)
 						if ok {
-							tcpconn.SetLinger(0)
+							_ = tcpconn.SetLinger(0)
 						}
 						conn.Close()
 					} else {
@@ -1047,7 +966,7 @@ func tcpRunCpsTestWithCtrl(test *ethrTest, toStop chan int, duration time.Durati
 						atomic.AddUint64(&test.testResult.totalCps, 1)
 						tcpconn, ok := conn.(*net.TCPConn)
 						if ok {
-							tcpconn.SetLinger(0)
+							_ = tcpconn.SetLinger(0)
 						}
 						conn.Close()
 					} else {
@@ -1150,7 +1069,7 @@ func tcpRunPing(test *ethrTest, prefix string) (timeTaken time.Duration, err err
 
 	tcpconn, ok := conn.(*net.TCPConn)
 	if ok {
-		tcpconn.SetLinger(0)
+		_ = tcpconn.SetLinger(0)
 	}
 	conn.Close()
 	return
@@ -1555,8 +1474,7 @@ func icmpSendMsg(c net.PacketConn, dstIPAddr net.IPAddr, hop, seq int, body stri
 		return start, nil, err
 	}
 
-	pid := os.Getpid() & 0xffff
-	pid = 9999
+	pid := 9999
 	wm := icmp.Message{
 		Type: ipv4.ICMPTypeEcho, Code: 0,
 		Body: &icmp.Echo{
@@ -1751,7 +1669,7 @@ func runUDPBandwidthAndPpsTestWithCtrl(test *ethrTest, toStop chan int, duration
 		// Extract local port
 		_, lportStr, _ := net.SplitHostPort(conn.LocalAddr().String())
 		var lport int
-		fmt.Sscanf(lportStr, "%d", &lport)
+		_, _ = fmt.Sscanf(lportStr, "%d", &lport)
 		udpPorts = append(udpPorts, lport)
 	}
 

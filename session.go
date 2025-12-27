@@ -184,13 +184,12 @@ var gIPVersion ethrIPVer = ethrIPAny
 var gIsExternalClient bool
 
 type ethrConn struct {
-	bw      uint64
-	pps     uint64
-	test    *ethrTest
-	conn    net.Conn
-	elem    *list.Element
-	fd      uintptr
-	retrans uint64
+	bw   uint64
+	pps  uint64
+	test *ethrTest
+	conn net.Conn
+	elem *list.Element
+	fd   uintptr
 }
 
 type ethrSession struct {
@@ -283,12 +282,6 @@ func deleteTestInternal(test *ethrTest) {
 	}
 }
 
-func getTest(remoteIP string, proto EthrProtocol, testType EthrTestType) (test *ethrTest) {
-	gSessionLock.RLock()
-	defer gSessionLock.RUnlock()
-	return getTestInternal(remoteIP, proto, testType)
-}
-
 func getTestInternal(remoteIP string, proto EthrProtocol, testType EthrTestType) (test *ethrTest) {
 	test = nil
 	session, found := gSessions[remoteIP]
@@ -326,13 +319,6 @@ func safeDeleteTest(test *ethrTest) bool {
 	return false
 }
 
-func addRef(test *ethrTest) {
-	gSessionLock.Lock()
-	defer gSessionLock.Unlock()
-	// TODO: Since we already take lock, atomic is not needed. Fix this later.
-	atomic.AddInt32(&test.refCount, 1)
-}
-
 func (test *ethrTest) newConn(conn net.Conn) (ec *ethrConn) {
 	gSessionLock.Lock()
 	defer gSessionLock.Unlock()
@@ -342,16 +328,6 @@ func (test *ethrTest) newConn(conn net.Conn) (ec *ethrConn) {
 	ec.fd = getFd(conn)
 	ec.elem = test.connList.PushBack(ec)
 	return
-}
-
-func (test *ethrTest) delConn(conn net.Conn) {
-	for e := test.connList.Front(); e != nil; e = e.Next() {
-		ec := e.Value.(*ethrConn)
-		if ec.conn == conn {
-			test.connList.Remove(e)
-			break
-		}
-	}
 }
 
 func (test *ethrTest) connListDo(f func(*ethrConn)) {
@@ -401,13 +377,6 @@ func createSyncReadyMsg(delayNs int64) (ethrMsg *EthrMsg) {
 func createSyncGoMsg(rttNs int64) (ethrMsg *EthrMsg) {
 	ethrMsg = &EthrMsg{Version: 0, Type: EthrSyncGo}
 	ethrMsg.SyncGo = &EthrMsgSyncGo{RttNs: rttNs}
-	return
-}
-
-// Control channel message creators
-func createAckMsgWithSession(sessionID string) (ethrMsg *EthrMsg) {
-	ethrMsg = &EthrMsg{Version: 0, Type: EthrAck}
-	ethrMsg.Ack = &EthrMsgAck{SessionID: sessionID}
 	return
 }
 
@@ -484,11 +453,6 @@ func recvSessionMsg(conn net.Conn) (ethrMsg *EthrMsg) {
 		// Connection closed while receiving message
 		return
 	}
-	ethrMsg = decodeMsg(msgBytes)
-	return
-}
-
-func recvSessionMsgFromBuffer(msgBytes []byte) (ethrMsg *EthrMsg) {
 	ethrMsg = decodeMsg(msgBytes)
 	return
 }

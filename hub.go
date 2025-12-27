@@ -683,7 +683,7 @@ func performDeviceAuth(serverURL string) error {
 		}
 
 		var tokenResp TokenResponse
-		json.NewDecoder(resp.Body).Decode(&tokenResp)
+		_ = json.NewDecoder(resp.Body).Decode(&tokenResp)
 		resp.Body.Close()
 
 		if tokenResp.Error == "authorization_pending" {
@@ -932,7 +932,7 @@ func tokenRefreshLoop(serverURL string) {
 		}
 
 		var tokenResp TokenResponse
-		json.NewDecoder(resp.Body).Decode(&tokenResp)
+		_ = json.NewDecoder(resp.Body).Decode(&tokenResp)
 		resp.Body.Close()
 
 		if tokenResp.Error != "" {
@@ -1110,7 +1110,7 @@ func commandLoop(serverURL string) {
 		}
 
 		var cmdResp CommandResponse
-		json.NewDecoder(resp.Body).Decode(&cmdResp)
+		_ = json.NewDecoder(resp.Body).Decode(&cmdResp)
 		resp.Body.Close()
 
 		if cmdResp.HasCommand {

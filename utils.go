@@ -252,26 +252,6 @@ func splitString(longString string, maxLen int) []string {
 	return splits
 }
 
-func max(x, y uint64) uint64 {
-	if x < y {
-		return y
-	}
-	return x
-}
-
-func toString(n int) string {
-	return fmt.Sprintf("%d", n)
-}
-
-func toInt(s string) int {
-	res, err := strconv.Atoi(s)
-	if err != nil {
-		ui.printDbg("Error in string conversion: %v", err)
-		return 0
-	}
-	return res
-}
-
 func truncateStringFromStart(str string, num int) string {
 	s := str
 	l := len(str)
@@ -298,11 +278,6 @@ func truncateStringFromEnd(str string, num int) string {
 	return s
 }
 
-func roundUpToZero(n int64) int64 {
-	y := n >> 63
-	return (n ^ y) - y
-}
-
 func getFd(conn net.Conn) uintptr {
 	var fd uintptr
 	var rc syscall.RawConn
@@ -324,22 +299,8 @@ func getFd(conn net.Conn) uintptr {
 	fn := func(s uintptr) {
 		fd = s
 	}
-	rc.Control(fn)
+	_ = rc.Control(fn)
 	return fd
-}
-
-type tcpKeepAliveListener struct {
-	*net.TCPListener
-}
-
-func (ln tcpKeepAliveListener) Accept() (c net.Conn, err error) {
-	tc, err := ln.AcceptTCP()
-	if err != nil {
-		return
-	}
-	tc.SetKeepAlive(true)
-	tc.SetKeepAlivePeriod(3 * time.Minute)
-	return tc, nil
 }
 
 func SleepUntilNextWholeSecond() {
@@ -423,7 +384,7 @@ func ethrDialEx(p EthrProtocol, dialAddr, localIP string, localPortNum uint16, t
 	} else {
 		tcpconn, ok := conn.(*net.TCPConn)
 		if ok {
-			tcpconn.SetLinger(0)
+			_ = tcpconn.SetLinger(0)
 		}
 		udpconn, ok := conn.(*net.UDPConn)
 		if ok {

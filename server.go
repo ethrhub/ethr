@@ -20,7 +20,6 @@ import (
 	"time"
 )
 
-var gCert []byte
 var gServerCancelChan chan struct{} // Channel to signal server shutdown
 var gUDPListener *net.UDPConn       // UDP listener for cleanup on shutdown
 
@@ -246,62 +245,15 @@ func handshakeWithClient(test *ethrTest, conn net.Conn) (testID EthrTestID, clie
 	return
 }
 
-// handshakeWithClientSync performs handshake and synchronizes start time with client
-// Server tells client when its next stats interval starts, client aligns to that
-func handshakeWithClientSync(test *ethrTest, conn net.Conn) (testID EthrTestID, clientParam EthrClientParam, err error) {
-	// Step 1: Receive SYN and send ACK (existing handshake)
-	ethrMsg := recvSessionMsg(conn)
-	if ethrMsg.Type != EthrSyn {
-		ui.printDbg("Failed to receive SYN message from client.")
-		err = os.ErrInvalid
-		return
-	}
-	testID = ethrMsg.Syn.TestID
-	clientParam = ethrMsg.Syn.ClientParam
-	ethrMsg = createAckMsg()
-	err = sendSessionMsg(conn, ethrMsg)
-	if err != nil {
-		ui.printDbg("Failed to send ACK message to client. Error: %v", err)
-		return
-	}
-
-	// Step 2: Receive sync request from client
-	ethrMsg = recvSessionMsg(conn)
-	if ethrMsg.Type != EthrSyncStart {
-		ui.printDbg("Failed to receive SyncStart message from client.")
-		err = os.ErrInvalid
-		return
-	}
-
-	// Step 3: Tell client how long until our next stats interval
-	delayNs := getTimeToNextTick()
-	// Calculate the exact start time (next interval boundary)
-	startTime := time.Now().Add(time.Duration(delayNs))
-
-	ethrMsg = createSyncReadyMsg(delayNs)
-	err = sendSessionMsg(conn, ethrMsg)
-	if err != nil {
-		ui.printDbg("Failed to send SyncReady message to client. Error: %v", err)
-		return
-	}
-
-	// Step 4: Wait until the next stats interval starts
-	time.Sleep(time.Duration(delayNs))
-
-	// Step 5: Set the test start time to the exact interval boundary
-	test.startTime = startTime
-	return
-}
-
 // syncStartWithClient synchronizes the start time for bandwidth tests
 // The server tells the client when its next stats interval starts,
 // and the client aligns to that timing.
 // Returns: isControl=true if control channel mode, isInBandSync=true if in-band sync mode
 func trySyncStartWithClient(test *ethrTest, conn net.Conn) (isControlChannel bool, sessionID string, err error) {
 	// Set a short read deadline to detect the connection type
-	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	ethrMsg := recvSessionMsg(conn)
-	conn.SetReadDeadline(time.Time{}) // Clear deadline
+	_ = conn.SetReadDeadline(time.Time{}) // Clear deadline
 
 	if ethrMsg.Type == EthrCtrlStart {
 		// This is a control channel connection (iPerf-style)
@@ -586,7 +538,7 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 
 	// Set a short timeout for handshake to detect CPS-only connections
 	// CPS test clients just open and close connections without sending any data
-	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 
 	// First do the basic handshake to determine test type
 	testID, clientParam, sessionID, err := handshakeWithClient(test, conn)
@@ -621,7 +573,7 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 	}()
 
 	// Clear the deadline for subsequent operations
-	conn.SetReadDeadline(time.Time{})
+	_ = conn.SetReadDeadline(time.Time{})
 
 	// Now we know this is NOT a pure CPS test - print connection info
 	ui.printDbg("New connection from %v, port %v to %v, port %v", server, port, lserver, lport)
@@ -734,10 +686,6 @@ func srvrHandleNewTcpConn(conn net.Conn) {
 		// Note: The UDP test results will be available because srvrRunUDPPacketHandler
 		// writes to the same test object
 	}
-}
-
-func srvrRunTCPBandwidthTest(test *ethrTest, clientParam EthrClientParam, conn net.Conn) {
-	srvrRunTCPBandwidthTestWithSession(test, clientParam, conn, "")
 }
 
 // srvrRunTCPBandwidthTestWithSession runs TCP bandwidth test and accumulates stats
