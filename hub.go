@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -398,9 +399,9 @@ func tryRefreshToken(serverURL string, refreshToken string) (*TokenResponse, err
 type RefreshResult int
 
 const (
-	RefreshSuccess        RefreshResult = iota // Tokens refreshed successfully
-	RefreshNeedsReauth                         // Re-authentication required
-	RefreshError                               // Temporary error, can retry
+	RefreshSuccess     RefreshResult = iota // Tokens refreshed successfully
+	RefreshNeedsReauth                      // Re-authentication required
+	RefreshError                            // Temporary error, can retry
 )
 
 // refreshTokensWithRetry attempts to refresh tokens with automatic retry from disk storage.
@@ -556,7 +557,7 @@ func runHubAgent(config HubConfig) {
 			hubAuth.AccessToken = tokenResp.AccessToken
 			hubAuth.RefreshToken = tokenResp.RefreshToken
 			hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-			
+
 			// Only save if refresh token changed (idempotent refresh optimization)
 			if tokenResp.RefreshToken != loadedRefreshToken {
 				_ = saveTokens(config.ServerURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
@@ -567,7 +568,7 @@ func runHubAgent(config HubConfig) {
 			// Re-read from disk and try again before giving up
 			ui.printDbg("Initial refresh failed: %v", refreshErr)
 			ui.printDbg("Re-reading tokens from disk in case another agent refreshed...")
-			
+
 			_, diskRefreshToken, _, loadErr := loadTokens(config.ServerURL)
 			if loadErr == nil && diskRefreshToken != "" && diskRefreshToken != loadedRefreshToken {
 				// Different token on disk - try with that
@@ -578,14 +579,14 @@ func runHubAgent(config HubConfig) {
 					hubAuth.AccessToken = tokenResp.AccessToken
 					hubAuth.RefreshToken = tokenResp.RefreshToken
 					hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-					
+
 					if tokenResp.RefreshToken != diskRefreshToken {
 						_ = saveTokens(config.ServerURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
 						ui.printDbg("New tokens saved to disk")
 					}
 				}
 			}
-			
+
 			// If still no valid tokens, will fall through to device auth
 			if hubAuth.AccessToken == "" {
 				ui.printMsg("Token refresh failed, starting new authentication...")
@@ -1903,6 +1904,65 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, stop
 			pingSequence++
 		}
 
+		// Set up ping summary callback for final sent/received/lost counts + latency stats
+		hubPingSummaryCallback = func(sent, received, lost uint32, latencyNumbers []time.Duration, test *ethrTest) {
+			if !test.isActive {
+				return
+			}
+
+			result := TestResult{
+				Timestamp:  time.Now(),
+				Source:     "client",
+				Protocol:   cmd.Protocol,
+				Type:       "ping_summary",
+				TestParams: testParams,
+			}
+
+			pingSent := int(sent)
+			pingReceived := int(received)
+			lossPercent := float64(0)
+			if sent > 0 {
+				lossPercent = float64(lost) / float64(sent) * 100
+			}
+
+			result.PingSent = &pingSent
+			result.PingReceived = &pingReceived
+			result.PingLossPercent = &lossPercent
+
+			// Calculate latency stats from the latency numbers
+			if len(latencyNumbers) > 0 && received > 0 {
+				sort.SliceStable(latencyNumbers, func(i, j int) bool {
+					return latencyNumbers[i] < latencyNumbers[j]
+				})
+				
+				sum := int64(0)
+				for _, d := range latencyNumbers {
+					sum += d.Nanoseconds()
+				}
+				
+				avgMs := float64(sum/int64(len(latencyNumbers))) / 1e6
+				minMs := float64(latencyNumbers[0].Nanoseconds()) / 1e6
+				maxMs := float64(latencyNumbers[len(latencyNumbers)-1].Nanoseconds()) / 1e6
+				
+				result.LatencyAvg = &avgMs
+				result.LatencyMin = &minMs
+				result.LatencyMax = &maxMs
+				
+				// Calculate percentiles
+				count := len(latencyNumbers)
+				if count >= 2 {
+					p50Ms := float64(latencyNumbers[(count*50)/100].Nanoseconds()) / 1e6
+					p90Ms := float64(latencyNumbers[(count*90)/100].Nanoseconds()) / 1e6
+					p99Ms := float64(latencyNumbers[(count*99)/100].Nanoseconds()) / 1e6
+					result.LatencyP50 = &p50Ms
+					result.LatencyP90 = &p90Ms
+					result.LatencyP99 = &p99Ms
+				}
+			}
+
+			sendResult(serverURL, sessionId, result, false)
+		}
+
 		// Mark test as started (for defer cleanup and summary)
 		testStarted = true
 
@@ -2246,6 +2306,65 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, st
 			pingSequence++
 		}
 
+		// Set up ping summary callback for final sent/received/lost counts + latency stats
+		hubPingSummaryCallback = func(sent, received, lost uint32, latencyNumbers []time.Duration, test *ethrTest) {
+			if !test.isActive {
+				return
+			}
+
+			result := TestResult{
+				Timestamp:  time.Now(),
+				Source:     "external",
+				Protocol:   cmd.Protocol,
+				Type:       "ping_summary",
+				TestParams: testParams,
+			}
+
+			pingSent := int(sent)
+			pingReceived := int(received)
+			lossPercent := float64(0)
+			if sent > 0 {
+				lossPercent = float64(lost) / float64(sent) * 100
+			}
+
+			result.PingSent = &pingSent
+			result.PingReceived = &pingReceived
+			result.PingLossPercent = &lossPercent
+
+			// Calculate latency stats from the latency numbers
+			if len(latencyNumbers) > 0 && received > 0 {
+				sort.SliceStable(latencyNumbers, func(i, j int) bool {
+					return latencyNumbers[i] < latencyNumbers[j]
+				})
+				
+				sum := int64(0)
+				for _, d := range latencyNumbers {
+					sum += d.Nanoseconds()
+				}
+				
+				avgMs := float64(sum/int64(len(latencyNumbers))) / 1e6
+				minMs := float64(latencyNumbers[0].Nanoseconds()) / 1e6
+				maxMs := float64(latencyNumbers[len(latencyNumbers)-1].Nanoseconds()) / 1e6
+				
+				result.LatencyAvg = &avgMs
+				result.LatencyMin = &minMs
+				result.LatencyMax = &maxMs
+				
+				// Calculate percentiles
+				count := len(latencyNumbers)
+				if count >= 2 {
+					p50Ms := float64(latencyNumbers[(count*50)/100].Nanoseconds()) / 1e6
+					p90Ms := float64(latencyNumbers[(count*90)/100].Nanoseconds()) / 1e6
+					p99Ms := float64(latencyNumbers[(count*99)/100].Nanoseconds()) / 1e6
+					result.LatencyP50 = &p50Ms
+					result.LatencyP90 = &p90Ms
+					result.LatencyP99 = &p99Ms
+				}
+			}
+
+			sendResult(serverURL, sessionId, result, false)
+		}
+
 		// Run the test in a goroutine so we can monitor for stopping
 		testDone := make(chan struct{})
 		go func() {
@@ -2299,6 +2418,7 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, st
 
 		hubStatsCallback = nil
 		hubPingCallback = nil
+		hubPingSummaryCallback = nil
 		hubActiveTest = nil
 
 		// Clean up from running tests map

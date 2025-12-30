@@ -164,6 +164,9 @@ var hubStatsCallback func(remoteAddr string, proto EthrProtocol, testType EthrTe
 // Callback for individual ping results
 var hubPingCallback func(localAddr, remoteAddr string, proto EthrProtocol, latency time.Duration, err error, test *ethrTest)
 
+// Callback for ping test summary (sent, received, lost counts + latency stats)
+var hubPingSummaryCallback func(sent, received, lost uint32, latencyNumbers []time.Duration, test *ethrTest)
+
 // Callback for new client control channel connections (server mode)
 // Called when a new client connects with a control channel, before any stats are sent
 var hubNewClientCallback func(remoteAddr string, proto EthrProtocol, testType EthrTestType, test *ethrTest)
