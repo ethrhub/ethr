@@ -394,6 +394,125 @@ func tryRefreshToken(serverURL string, refreshToken string) (*TokenResponse, err
 	return &tokenResp, nil
 }
 
+// RefreshResult represents the outcome of a token refresh attempt
+type RefreshResult int
+
+const (
+	RefreshSuccess        RefreshResult = iota // Tokens refreshed successfully
+	RefreshNeedsReauth                         // Re-authentication required
+	RefreshError                               // Temporary error, can retry
+)
+
+// refreshTokensWithRetry attempts to refresh tokens with automatic retry from disk storage.
+// This handles the case where multiple agents on the same machine share token storage.
+// If the in-memory refresh token is invalid, it checks if another process has already
+// refreshed and saved new tokens to disk.
+//
+// Returns:
+//   - RefreshSuccess: Tokens were refreshed successfully (hubAuth is updated)
+//   - RefreshNeedsReauth: All tokens are invalid, caller should trigger re-authentication
+//   - RefreshError: Temporary error occurred, caller can retry later
+func refreshTokensWithRetry(serverURL string) RefreshResult {
+	// Get current refresh token from memory
+	hubAuth.mu.RLock()
+	memoryRefreshToken := hubAuth.RefreshToken
+	hubAuth.mu.RUnlock()
+
+	if memoryRefreshToken == "" {
+		ui.printErr("Token refresh failed: refresh token is empty")
+		return RefreshNeedsReauth
+	}
+
+	// First attempt: try with the in-memory token
+	ui.printDbg("Attempting token refresh with in-memory token...")
+	tokenResp, err := tryRefreshToken(serverURL, memoryRefreshToken)
+	if err == nil {
+		// Success with in-memory token
+		updateAuthTokens(serverURL, tokenResp)
+		ui.printDbg("Token refreshed successfully")
+		return RefreshSuccess
+	}
+
+	ui.printDbg("In-memory token refresh failed: %v", err)
+
+	// Second attempt: check if another process has refreshed and saved to disk
+	ui.printDbg("Checking disk for updated tokens...")
+	_, diskRefreshToken, _, loadErr := loadTokens(serverURL)
+	if loadErr != nil {
+		ui.printDbg("Failed to load tokens from disk: %v", loadErr)
+		return RefreshNeedsReauth
+	}
+
+	if diskRefreshToken == "" {
+		ui.printDbg("No refresh token found on disk")
+		return RefreshNeedsReauth
+	}
+
+	if diskRefreshToken == memoryRefreshToken {
+		// Same token on disk - it's truly invalid
+		ui.printDbg("Disk token is same as memory token - tokens are truly invalid")
+		return RefreshNeedsReauth
+	}
+
+	// Different token on disk - another process may have refreshed
+	ui.printDbg("Found different refresh token on disk, trying that...")
+	tokenResp, err = tryRefreshToken(serverURL, diskRefreshToken)
+	if err == nil {
+		// Success with disk token
+		updateAuthTokens(serverURL, tokenResp)
+		ui.printDbg("Token refreshed successfully using disk token")
+		return RefreshSuccess
+	}
+
+	ui.printDbg("Disk token also invalid: %v", err)
+	return RefreshNeedsReauth
+}
+
+// updateAuthTokens updates the in-memory auth state and saves to disk only if tokens changed
+func updateAuthTokens(serverURL string, tokenResp *TokenResponse) {
+	// Update in-memory state
+	hubAuth.mu.Lock()
+	hubAuth.AccessToken = tokenResp.AccessToken
+	hubAuth.RefreshToken = tokenResp.RefreshToken
+	hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	hubAuth.mu.Unlock()
+
+	// Check if we need to save to disk by comparing with what's already there
+	// With idempotent refresh on the server, multiple agents using the same
+	// old refresh token will get the same new tokens back, so no need to
+	// write to disk if another agent already saved them
+	_, diskRefreshToken, _, err := loadTokens(serverURL)
+	if err == nil && diskRefreshToken == tokenResp.RefreshToken {
+		ui.printDbg("Skipping disk save (disk already has current refresh token)")
+		return
+	}
+
+	_ = saveTokens(serverURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
+	ui.printDbg("Tokens saved to disk")
+}
+
+// handleReauthentication performs device authentication and re-registration
+// Call this when refreshTokensWithRetry returns RefreshNeedsReauth
+func handleReauthentication(serverURL string) error {
+	ui.printMsg("Refresh token invalid, re-authenticating...")
+	clearTokens(serverURL)
+
+	if err := performDeviceAuth(serverURL); err != nil {
+		return fmt.Errorf("re-authentication failed: %w", err)
+	}
+
+	_ = saveTokens(serverURL, hubAuth.AccessToken, hubAuth.RefreshToken, 3600)
+	ui.printMsg("Re-authentication successful")
+
+	// Re-register since tokens changed
+	if err := registerAgent(serverURL, hubAgentTitle); err != nil {
+		return fmt.Errorf("re-registration failed: %w", err)
+	}
+	ui.printMsg("Re-registered successfully with new agent ID: %s", hubAgentId)
+
+	return nil
+}
+
 func runHubAgent(config HubConfig) {
 	ui.printMsg("Starting hub integration mode...")
 	ui.printMsg("Hub server: %s", config.ServerURL)
@@ -428,52 +547,49 @@ func runHubAgent(config HubConfig) {
 		ui.printMsg("Found saved credentials for this hub, attempting automatic login...")
 		ui.printDbg("Loaded token expires at: %v (in %v)", expiresAt, time.Until(expiresAt))
 
-		// Check if access token is still valid (with 5 minute buffer, or 30 seconds for short-lived tokens)
-		bufferTime := 5 * time.Minute
-		if time.Until(expiresAt) < 2*time.Minute {
-			// For short-lived tokens (< 2 minutes), use 30 second buffer
-			bufferTime = 30 * time.Second
-		}
-
-		if time.Now().Before(expiresAt.Add(-bufferTime)) {
-			// Access token looks valid, but validate refresh token to catch server restarts
-			ui.printDbg("Validating refresh token before using cached credentials...")
-			tokenResp, err := tryRefreshToken(config.ServerURL, loadedRefreshToken)
-			if err == nil {
-				// Refresh token is valid, use the new tokens
-				ui.printDbg("Refresh token validated successfully")
-				hubAuth.AccessToken = tokenResp.AccessToken
-				hubAuth.RefreshToken = tokenResp.RefreshToken
-				hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+		// Try to refresh the token (validates with server and gets fresh tokens)
+		ui.printDbg("Validating/refreshing token...")
+		tokenResp, refreshErr := tryRefreshToken(config.ServerURL, loadedRefreshToken)
+		if refreshErr == nil {
+			// Success - update in-memory state
+			ui.printDbg("Token refresh successful")
+			hubAuth.AccessToken = tokenResp.AccessToken
+			hubAuth.RefreshToken = tokenResp.RefreshToken
+			hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+			
+			// Only save if refresh token changed (idempotent refresh optimization)
+			if tokenResp.RefreshToken != loadedRefreshToken {
 				_ = saveTokens(config.ServerURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
-			} else {
-				// Refresh token is invalid (server may have restarted)
-				ui.printMsg("Saved refresh token is invalid: %v", err)
-				ui.printMsg("Clearing saved credentials and starting new authentication...")
-				clearTokens(config.ServerURL)
-				hubAuth = &HubAuth{}
-				// Will fall through to device auth below
+				ui.printDbg("New tokens saved to disk")
 			}
 		} else {
-			// Try to refresh the token
-			ui.printDbg("Access token expired or expiring soon, refreshing...")
-			ui.printDbg("Refresh token: %.20s...", loadedRefreshToken)
-			tokenResp, err := tryRefreshToken(config.ServerURL, loadedRefreshToken)
-			if err == nil {
-				ui.printDbg("Token refreshed successfully")
-				hubAuth.AccessToken = tokenResp.AccessToken
-				hubAuth.RefreshToken = tokenResp.RefreshToken
-				hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-
-				// Save new tokens
-				_ = saveTokens(config.ServerURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
-				ui.printDbg("New tokens saved, expires at: %v", hubAuth.ExpiresAt)
-			} else {
-				ui.printMsg("Token refresh failed: %v", err)
-				ui.printMsg("Clearing saved credentials and starting new authentication...")
+			// Refresh failed - maybe another agent already refreshed?
+			// Re-read from disk and try again before giving up
+			ui.printDbg("Initial refresh failed: %v", refreshErr)
+			ui.printDbg("Re-reading tokens from disk in case another agent refreshed...")
+			
+			_, diskRefreshToken, _, loadErr := loadTokens(config.ServerURL)
+			if loadErr == nil && diskRefreshToken != "" && diskRefreshToken != loadedRefreshToken {
+				// Different token on disk - try with that
+				ui.printDbg("Found different token on disk, trying that...")
+				tokenResp, refreshErr = tryRefreshToken(config.ServerURL, diskRefreshToken)
+				if refreshErr == nil {
+					ui.printDbg("Token refresh successful with disk token")
+					hubAuth.AccessToken = tokenResp.AccessToken
+					hubAuth.RefreshToken = tokenResp.RefreshToken
+					hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+					
+					if tokenResp.RefreshToken != diskRefreshToken {
+						_ = saveTokens(config.ServerURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
+						ui.printDbg("New tokens saved to disk")
+					}
+				}
+			}
+			
+			// If still no valid tokens, will fall through to device auth
+			if hubAuth.AccessToken == "" {
+				ui.printMsg("Token refresh failed, starting new authentication...")
 				clearTokens(config.ServerURL)
-				// Will fall through to device auth below
-				hubAuth = &HubAuth{}
 			}
 		}
 	} else if err != nil {
@@ -801,11 +917,9 @@ func tokenRefreshLoop(serverURL string) {
 			continue
 		}
 
-		// Reload tokens from disk after acquiring lock
-		// Another client may have already refreshed while we were waiting
-		diskAccessToken, diskRefreshToken, diskExpiresAt, err := loadTokens(serverURL)
+		// Check if another client already refreshed while we were waiting for the lock
+		_, diskRefreshToken, diskExpiresAt, err := loadTokens(serverURL)
 		if err == nil && diskRefreshToken != "" {
-			// Check if the token was recently refreshed by another client
 			timeUntilExpiry := time.Until(diskExpiresAt)
 			var refreshBuffer time.Duration
 			if timeUntilExpiry < 2*time.Minute {
@@ -817,6 +931,7 @@ func tokenRefreshLoop(serverURL string) {
 			if timeUntilExpiry > refreshBuffer {
 				// Token was already refreshed by another client, use it
 				ui.printDbg("Token was already refreshed by another client (valid for %v more)", timeUntilExpiry)
+				diskAccessToken, _, _, _ := loadTokens(serverURL)
 				hubAuth.mu.Lock()
 				hubAuth.AccessToken = diskAccessToken
 				hubAuth.RefreshToken = diskRefreshToken
@@ -827,74 +942,22 @@ func tokenRefreshLoop(serverURL string) {
 			}
 		}
 
-		// Still need to refresh
-		refreshToken := diskRefreshToken
-		if refreshToken == "" {
-			// Fallback to memory if disk load failed
-			hubAuth.mu.RLock()
-			refreshToken = hubAuth.RefreshToken
-			hubAuth.mu.RUnlock()
-		}
-
-		if refreshToken == "" {
-			ui.printErr("Token refresh failed: refresh token is empty")
-			releaseTokenLock(lockPath)
-			time.Sleep(30 * time.Second)
-			continue
-		}
-
-		reqBody, _ := json.Marshal(map[string]string{
-			"refresh_token": refreshToken,
-		})
-
-		ui.printDbg("Token refresh loop - refresh token: %.20s...", refreshToken)
-		ui.printDbg("Token refresh request body: %s", string(reqBody))
-
-		resp, err := hubHttpClient.Post(
-			serverURL+"/api/token/refresh",
-			"application/json",
-			bytes.NewBuffer(reqBody),
-		)
-		if err != nil {
-			ui.printErr("Token refresh failed: %v", err)
-			releaseTokenLock(lockPath)
-			time.Sleep(30 * time.Second)
-			continue
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			ui.printErr("Token refresh failed (HTTP %d): %s", resp.StatusCode, string(body))
-			releaseTokenLock(lockPath)
-			time.Sleep(30 * time.Second)
-			continue
-		}
-
-		var tokenResp TokenResponse
-		_ = json.NewDecoder(resp.Body).Decode(&tokenResp)
-		resp.Body.Close()
-
-		if tokenResp.Error != "" {
-			ui.printErr("Token refresh failed: %s", tokenResp.Error)
-			releaseTokenLock(lockPath)
-			time.Sleep(30 * time.Second)
-			continue
-		}
-
-		hubAuth.mu.Lock()
-		hubAuth.AccessToken = tokenResp.AccessToken
-		hubAuth.RefreshToken = tokenResp.RefreshToken
-		hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-		hubAuth.mu.Unlock()
-
-		// Save refreshed tokens to disk
-		_ = saveTokens(serverURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
-
-		// Release lock after saving
+		// Perform refresh with retry logic
+		result := refreshTokensWithRetry(serverURL)
 		releaseTokenLock(lockPath)
 
-		ui.printDbg("Token refreshed successfully")
+		switch result {
+		case RefreshSuccess:
+			// Already logged in refreshTokensWithRetry
+			continue
+		case RefreshNeedsReauth:
+			if err := handleReauthentication(serverURL); err != nil {
+				ui.printErr("%v", err)
+				time.Sleep(30 * time.Second)
+			}
+		case RefreshError:
+			time.Sleep(30 * time.Second)
+		}
 	}
 }
 
@@ -938,72 +1001,21 @@ func heartbeatLoop(serverURL string) {
 		if resp.StatusCode == http.StatusUnauthorized {
 			// Token expired, refresh immediately
 			resp.Body.Close()
-			ui.printDbg("Heartbeat failed with 401, refreshing token immediately...")
+			ui.printDbg("Heartbeat failed with 401, refreshing token...")
 
-			hubAuth.mu.RLock()
-			refreshToken := hubAuth.RefreshToken
-			hubAuth.mu.RUnlock()
-
-			tokenResp, err := tryRefreshToken(serverURL, refreshToken)
-			if err != nil {
-				// Refresh failed - maybe another process already refreshed?
-				// Try re-reading tokens from disk and validate them
-				ui.printDbg("Refresh failed, re-reading tokens from disk...")
-				_, diskRefreshToken, _, loadErr := loadTokens(serverURL)
-				if loadErr == nil && diskRefreshToken != refreshToken {
-					// Different token on disk - another process refreshed, try those
-					ui.printDbg("Found different tokens on disk, validating...")
-					tokenResp, err = tryRefreshToken(serverURL, diskRefreshToken)
-					if err == nil {
-						// Disk tokens are valid, use the refreshed ones
-						hubAuth.mu.Lock()
-						hubAuth.AccessToken = tokenResp.AccessToken
-						hubAuth.RefreshToken = tokenResp.RefreshToken
-						hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-						hubAuth.mu.Unlock()
-						_ = saveTokens(serverURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
-						ui.printDbg("Disk tokens validated and refreshed successfully")
-						continue
-					}
-					// Disk tokens also invalid, fall through to re-auth
-					ui.printDbg("Disk tokens also invalid")
-				} else if loadErr == nil {
-					// Same token on disk - tokens are truly invalid
-					ui.printDbg("Same tokens on disk, need re-authentication")
-				}
-
-				// Refresh token is invalid (server restarted or token expired)
-				// Clear tokens and re-authenticate
-				ui.printMsg("Refresh token invalid, re-authenticating...")
-				clearTokens(serverURL)
-
-				if err := performDeviceAuth(serverURL); err != nil {
-					ui.printErr("Re-authentication failed: %v", err)
+			result := refreshTokensWithRetry(serverURL)
+			switch result {
+			case RefreshSuccess:
+				ui.printDbg("Token refreshed, next heartbeat will use new token")
+			case RefreshNeedsReauth:
+				if err := handleReauthentication(serverURL); err != nil {
+					ui.printErr("%v", err)
 					time.Sleep(30 * time.Second)
-					continue
 				}
-
-				_ = saveTokens(serverURL, hubAuth.AccessToken, hubAuth.RefreshToken, 3600)
-				ui.printMsg("Re-authentication successful")
-
-				// Also need to re-register since server may have restarted
-				if err := registerAgent(serverURL, hubAgentTitle); err != nil {
-					ui.printErr("Re-registration failed: %v", err)
-					time.Sleep(30 * time.Second)
-					continue
-				}
-				ui.printMsg("Re-registered successfully with new agent ID: %s", hubAgentId)
-				continue
+			case RefreshError:
+				time.Sleep(30 * time.Second)
 			}
-
-			hubAuth.mu.Lock()
-			hubAuth.AccessToken = tokenResp.AccessToken
-			hubAuth.RefreshToken = tokenResp.RefreshToken
-			hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-			hubAuth.mu.Unlock()
-
-			_ = saveTokens(serverURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
-			ui.printDbg("Token refreshed successfully, next heartbeat will use new token")
+			continue
 		} else if resp.StatusCode == http.StatusNotFound {
 			// Agent not found (server probably restarted), re-register
 			resp.Body.Close()
