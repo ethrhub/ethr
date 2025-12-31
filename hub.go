@@ -681,6 +681,51 @@ func runHubAgent(config HubConfig) {
 }
 
 func performDeviceAuth(serverURL string) error {
+	// Retry forever until authentication succeeds
+	for {
+		err := performDeviceAuthAttempt(serverURL)
+		if err == nil {
+			return nil
+		}
+
+		// Check if another agent on this machine has authenticated
+		accessToken, refreshToken, expiresAt, loadErr := loadTokens(serverURL)
+		if loadErr == nil && refreshToken != "" {
+			// Found tokens on disk - another agent may have authenticated
+			ui.printMsg("Found credentials from another agent, attempting to use them...")
+
+			// Verify the tokens work by trying a refresh
+			tokenResp, refreshErr := tryRefreshToken(serverURL, refreshToken)
+			if refreshErr == nil {
+				// Tokens work! Update our state
+				hubAuth.mu.Lock()
+				hubAuth.AccessToken = tokenResp.AccessToken
+				hubAuth.RefreshToken = tokenResp.RefreshToken
+				hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+				hubAuth.mu.Unlock()
+				_ = saveTokens(serverURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
+				ui.printMsg("Successfully authenticated using credentials from another agent")
+				return nil
+			} else if accessToken != "" && time.Now().Before(expiresAt) {
+				// Access token still valid
+				hubAuth.mu.Lock()
+				hubAuth.AccessToken = accessToken
+				hubAuth.RefreshToken = refreshToken
+				hubAuth.ExpiresAt = expiresAt
+				hubAuth.mu.Unlock()
+				ui.printMsg("Successfully authenticated using credentials from another agent")
+				return nil
+			}
+		}
+
+		// Log the error and retry
+		ui.printMsg("Device authentication attempt failed: %v", err)
+		ui.printMsg("Requesting new device code in 5 seconds...")
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func performDeviceAuthAttempt(serverURL string) error {
 	// Request device code
 	resp, err := hubHttpClient.Post(
 		serverURL+"/api/device/code",
@@ -714,14 +759,72 @@ func performDeviceAuth(serverURL string) error {
 	ui.printMsg("Or visit directly: %s", deviceCode.VerificationUriComplete)
 	ui.printMsg("")
 	ui.printMsg(strings.Repeat("=", 70))
-	ui.printMsg("Waiting for authorization...")
 
 	// Poll for token
 	interval := time.Duration(deviceCode.Interval) * time.Second
+	if interval < 5*time.Second {
+		interval = 5 * time.Second // Minimum 5 second interval
+	}
 	expiresAt := time.Now().Add(time.Duration(deviceCode.ExpiresIn) * time.Second)
 
-	for time.Now().Before(expiresAt) {
+	ui.printMsg("Waiting for authorization (code expires in %d seconds)...", deviceCode.ExpiresIn)
+
+	// Strip monotonic clock from expiresAt to ensure wall clock comparison
+	// This fixes issues on macOS where monotonic clock gets out of sync after system sleep
+	expiresAt = expiresAt.Round(0)
+
+	// Track when we last showed status
+	pollCount := 0
+	lastStatusTime := time.Now().Round(0)
+
+	for time.Now().Round(0).Before(expiresAt) {
+		sleepStart := time.Now().Round(0)
 		time.Sleep(interval)
+		pollCount++
+
+		// Use wall clock only (Round(0) strips monotonic clock)
+		now := time.Now().Round(0)
+		remaining := expiresAt.Sub(now)
+		wallClockElapsed := now.Sub(sleepStart)
+
+		// Detect system sleep and show updated status immediately
+		if wallClockElapsed > interval+2*time.Second {
+			ui.printMsg("Resumed after system sleep (%.0fs elapsed)", wallClockElapsed.Seconds())
+		}
+
+		if remaining <= 0 {
+			ui.printMsg("Device code expired")
+			return fmt.Errorf("device code expired before authorization")
+		}
+
+		// Show status every 30 seconds or after system sleep
+		if time.Now().Round(0).Sub(lastStatusTime) >= 30*time.Second {
+			ui.printMsg("Still waiting for authorization (%.0f seconds remaining)...", remaining.Seconds())
+			lastStatusTime = time.Now().Round(0)
+		}
+
+		// Every 3 polls (~15 seconds), check if another agent has authenticated
+		// and try to use their tokens instead of waiting for this device code
+		if pollCount%3 == 0 {
+			_, refreshToken, _, loadErr := loadTokens(serverURL)
+			if loadErr == nil && refreshToken != "" {
+				ui.printDbg("Found tokens on disk from another agent, trying to refresh...")
+				// Try to refresh the token to verify it works
+				tokenResp, refreshErr := tryRefreshToken(serverURL, refreshToken)
+				if refreshErr == nil {
+					// Success! Use these tokens
+					ui.printMsg("Using credentials from another agent on this machine")
+					hubAuth.mu.Lock()
+					hubAuth.AccessToken = tokenResp.AccessToken
+					hubAuth.RefreshToken = tokenResp.RefreshToken
+					hubAuth.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+					hubAuth.mu.Unlock()
+					_ = saveTokens(serverURL, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn)
+					return nil
+				}
+				ui.printDbg("Token refresh failed, continuing to wait for device code: %v", refreshErr)
+			}
+		}
 
 		// Request token
 		tokenReq := map[string]string{
@@ -736,6 +839,7 @@ func performDeviceAuth(serverURL string) error {
 			bytes.NewBuffer(reqBody),
 		)
 		if err != nil {
+			ui.printDbg("Token poll request failed: %v", err)
 			continue
 		}
 
@@ -747,6 +851,7 @@ func performDeviceAuth(serverURL string) error {
 			continue
 		} else if tokenResp.Error == "slow_down" {
 			interval = interval + (5 * time.Second)
+			ui.printDbg("Slowing down polling interval to %v", interval)
 			continue
 		} else if tokenResp.Error != "" {
 			return fmt.Errorf("token request failed: %s", tokenResp.Error)
