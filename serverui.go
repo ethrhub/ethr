@@ -305,8 +305,12 @@ func (u *serverCli) getTitle() string {
 
 func (u *serverCli) printMsg(format string, a ...interface{}) {
 	s := fmt.Sprintf(format, a...)
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Printf("[%s] %s\n", timestamp, s)
+	if loggingLevel == LogLevelDebug {
+		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		fmt.Printf("[%s] %s\n", timestamp, s)
+	} else {
+		fmt.Println(s)
+	}
 	logInfo(s)
 }
 
@@ -322,8 +326,12 @@ func (u *serverCli) printDbg(format string, a ...interface{}) {
 
 func (u *serverCli) printErr(format string, a ...interface{}) {
 	s := fmt.Sprintf(format, a...)
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Printf("\x1b[31m[%s] %s\x1b[0m\n", timestamp, s)
+	if loggingLevel == LogLevelDebug {
+		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		fmt.Printf("\x1b[31m[%s] %s\x1b[0m\n", timestamp, s)
+	} else {
+		fmt.Printf("\x1b[31m%s\x1b[0m\n", s)
+	}
 	logError(s)
 }
 

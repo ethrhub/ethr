@@ -25,15 +25,23 @@ func (u *clientUI) getTitle() string {
 func (u *clientUI) printMsg(format string, a ...interface{}) {
 	s := fmt.Sprintf(format, a...)
 	logInfo(s)
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Printf("[%s] %s\n", timestamp, s)
+	if loggingLevel == LogLevelDebug {
+		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		fmt.Printf("[%s] %s\n", timestamp, s)
+	} else {
+		fmt.Println(s)
+	}
 }
 
 func (u *clientUI) printErr(format string, a ...interface{}) {
 	s := fmt.Sprintf(format, a...)
 	logError(s)
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Printf("\x1b[31m[%s] %s\x1b[0m\n", timestamp, s)
+	if loggingLevel == LogLevelDebug {
+		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		fmt.Printf("\x1b[31m[%s] %s\x1b[0m\n", timestamp, s)
+	} else {
+		fmt.Printf("\x1b[31m%s\x1b[0m\n", s)
+	}
 }
 
 func (u *clientUI) printDbg(format string, a ...interface{}) {
