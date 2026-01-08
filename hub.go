@@ -235,6 +235,8 @@ type ResultSubmissionRequest struct {
 	SessionId string     `json:"sessionId"`
 	Result    TestResult `json:"result"`
 	IsFinal   bool       `json:"isFinal"`
+	AgentTime *time.Time `json:"agentTime,omitempty"` // Agent's current time for clock offset calculation
+	StartedAt *time.Time `json:"startedAt,omitempty"` // When agent started the test
 }
 
 type StatusUpdateRequest struct {
@@ -243,10 +245,17 @@ type StatusUpdateRequest struct {
 	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
+type RunningSessionInfo struct {
+	SessionId string    `json:"sessionId"`
+	StartedAt time.Time `json:"startedAt"`
+}
+
 type HeartbeatRequest struct {
-	AgentId           string   `json:"agentId"`
-	Status            string   `json:"status"`
-	RunningSessionIds []string `json:"runningSessionIds,omitempty"` // Sessions the agent is actively running
+	AgentId           string               `json:"agentId"`
+	Status            string               `json:"status"`
+	AgentTime         *time.Time           `json:"agentTime,omitempty"`         // Agent's current time for clock offset calculation
+	RunningSessionIds []string             `json:"runningSessionIds,omitempty"` // Legacy: simple session IDs
+	RunningSessions   []RunningSessionInfo `json:"runningSessions,omitempty"`   // New: sessions with StartedAt
 }
 
 var hubAuth *HubAuth
@@ -260,6 +269,12 @@ var runningTests = struct {
 	sync.RWMutex
 	tests map[string]chan struct{} // sessionId -> stop channel
 }{tests: make(map[string]chan struct{})}
+
+// Track when each test started
+var testStartTimes = struct {
+	sync.RWMutex
+	times map[string]time.Time // sessionId -> startedAt
+}{times: make(map[string]time.Time)}
 
 // Track whether a session should be completed gracefully (vs stopped)
 var gracefulCompletions sync.Map // sessionId -> bool
@@ -1075,19 +1090,33 @@ func heartbeatLoop(serverURL string) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// Collect running session IDs
+		// Collect running sessions with their start times
 		runningTests.RLock()
-		runningSessionIds := make([]string, 0, len(runningTests.tests))
+		testStartTimes.RLock()
+		runningSessions := make([]RunningSessionInfo, 0, len(runningTests.tests))
+		runningSessionIds := make([]string, 0, len(runningTests.tests)) // Legacy format for backward compatibility
 		for sessionId := range runningTests.tests {
 			runningSessionIds = append(runningSessionIds, sessionId)
+			startedAt := testStartTimes.times[sessionId]
+			if startedAt.IsZero() {
+				startedAt = time.Now().UTC() // Fallback if not tracked
+			}
+			runningSessions = append(runningSessions, RunningSessionInfo{
+				SessionId: sessionId,
+				StartedAt: startedAt,
+			})
 		}
+		testStartTimes.RUnlock()
 		runningTests.RUnlock()
 
-		ui.printDbg("Sending heartbeat with %d running sessions...", len(runningSessionIds))
+		agentTime := time.Now().UTC()
+		ui.printDbg("Sending heartbeat with %d running sessions...", len(runningSessions))
 		reqBody, _ := json.Marshal(HeartbeatRequest{
 			AgentId:           hubAgentId,
 			Status:            "Connected",
-			RunningSessionIds: runningSessionIds,
+			AgentTime:         &agentTime,
+			RunningSessionIds: runningSessionIds, // Legacy format
+			RunningSessions:   runningSessions,   // New format with StartedAt
 		})
 
 		httpReq, err := http.NewRequest("POST", serverURL+"/api/cli/agent/heartbeat", bytes.NewBuffer(reqBody))
@@ -1170,6 +1199,39 @@ func commandLoop(serverURL string) {
 			continue
 		}
 
+		// Handle HTTP errors - especially auth errors
+		if resp.StatusCode == http.StatusUnauthorized {
+			resp.Body.Close()
+			ui.printDbg("Command poll failed with 401, refreshing token...")
+
+			result := refreshTokensWithRetry(serverURL)
+			switch result {
+			case RefreshSuccess:
+				ui.printDbg("Token refreshed, next poll will use new token")
+			case RefreshNeedsReauth:
+				if err := handleReauthentication(serverURL); err != nil {
+					ui.printErr("%v", err)
+				}
+			case RefreshError:
+				ui.printDbg("Token refresh failed, will retry")
+			}
+			continue
+		} else if resp.StatusCode == http.StatusNotFound {
+			resp.Body.Close()
+			ui.printMsg("Agent not found on server, re-registering...")
+			if err := registerAgent(serverURL, hubAgentTitle); err != nil {
+				ui.printErr("Re-registration failed: %v", err)
+			} else {
+				ui.printMsg("Re-registered successfully with new agent ID: %s", hubAgentId)
+			}
+			continue
+		} else if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			ui.printDbg("Command poll failed (HTTP %d): %s", resp.StatusCode, string(body))
+			continue
+		}
+
 		var cmdResp CommandResponse
 		_ = json.NewDecoder(resp.Body).Decode(&cmdResp)
 		resp.Body.Close()
@@ -1184,8 +1246,17 @@ func commandLoop(serverURL string) {
 				ui.printDbg("Received complete command for session: %s", cmdResp.SessionId)
 				stopTest(cmdResp.SessionId, true) // graceful completion
 			default:
-				ui.printMsg("Received command for session: %s", cmdResp.SessionId)
-				go executeCommand(serverURL, cmdResp.SessionId, cmdResp.Command)
+				// Check if this session is already running (dedupe - server may re-send pending sessions)
+				runningTests.RLock()
+				_, alreadyRunning := runningTests.tests[cmdResp.SessionId]
+				runningTests.RUnlock()
+
+				if alreadyRunning {
+					ui.printDbg("Session %s already running, ignoring duplicate command", cmdResp.SessionId)
+				} else {
+					ui.printMsg("Received command for session: %s", cmdResp.SessionId)
+					go executeCommand(serverURL, cmdResp.SessionId, cmdResp.Command)
+				}
 			}
 		}
 	}
@@ -1206,6 +1277,7 @@ func stopTest(sessionId string, graceful bool) {
 		gracefulCompletions.Store(sessionId, graceful)
 		close(stopChan)
 		delete(runningTests.tests, sessionId)
+		// Note: Don't delete testStartTimes here - it's still needed for final result submission
 		if graceful {
 			ui.printDbg("Gracefully completing test session: %s", sessionId)
 		} else {
@@ -1218,6 +1290,12 @@ func stopTest(sessionId string, graceful bool) {
 
 func executeCommand(serverURL string, sessionId string, cmd TestCommand) {
 	ui.printMsg("Executing command: mode=%s, protocol=%s, testType=%s", cmd.Mode, cmd.Protocol, cmd.TestType)
+
+	// Record the start time
+	startTime := time.Now().UTC()
+	testStartTimes.Lock()
+	testStartTimes.times[sessionId] = startTime
+	testStartTimes.Unlock()
 
 	// Create stop channel and register it
 	stopChan := make(chan struct{})
@@ -1243,6 +1321,9 @@ func executeCommand(serverURL string, sessionId string, cmd TestCommand) {
 		runningTests.Lock()
 		delete(runningTests.tests, sessionId)
 		runningTests.Unlock()
+		testStartTimes.Lock()
+		delete(testStartTimes.times, sessionId)
+		testStartTimes.Unlock()
 	}
 }
 
@@ -1511,10 +1592,13 @@ func executeServerMode(serverURL string, sessionId string, cmd TestCommand, stop
 		}
 	}
 
-	// Clean up from running tests map
+	// Clean up from running tests map and start times
 	runningTests.Lock()
 	delete(runningTests.tests, sessionId)
 	runningTests.Unlock()
+	testStartTimes.Lock()
+	delete(testStartTimes.times, sessionId)
+	testStartTimes.Unlock()
 }
 
 // Helper function to build test parameters for display
@@ -1746,10 +1830,13 @@ func executeClientMode(serverURL string, sessionId string, cmd TestCommand, stop
 			hubActiveTest = nil
 			ui.printDbg("Test cleanup completed for session %s", sessionId)
 
-			// Remove from running tests map
+			// Remove from running tests map and start times
 			runningTests.Lock()
 			delete(runningTests.tests, sessionId)
 			runningTests.Unlock()
+			testStartTimes.Lock()
+			delete(testStartTimes.times, sessionId)
+			testStartTimes.Unlock()
 		}()
 
 		// Don't call initClient() as it tries to create log files
@@ -2532,19 +2619,33 @@ func executeExternalMode(serverURL string, sessionId string, cmd TestCommand, st
 		hubPingSummaryCallback = nil
 		hubActiveTest = nil
 
-		// Clean up from running tests map
+		// Clean up from running tests map and start times
 		runningTests.Lock()
 		delete(runningTests.tests, sessionId)
 		runningTests.Unlock()
+		testStartTimes.Lock()
+		delete(testStartTimes.times, sessionId)
+		testStartTimes.Unlock()
 	}()
 }
 
 func sendResult(serverURL string, sessionId string, result TestResult, isFinal bool) {
-	reqBody, _ := json.Marshal(ResultSubmissionRequest{
+	// Get the start time for this session
+	testStartTimes.RLock()
+	startedAt, hasStartTime := testStartTimes.times[sessionId]
+	testStartTimes.RUnlock()
+
+	agentTime := time.Now().UTC()
+	req := ResultSubmissionRequest{
 		SessionId: sessionId,
 		Result:    result,
 		IsFinal:   isFinal,
-	})
+		AgentTime: &agentTime,
+	}
+	if hasStartTime {
+		req.StartedAt = &startedAt
+	}
+	reqBody, _ := json.Marshal(req)
 
 	// Debug tracing: Print what we're sending (only with -debug flag)
 	if result.Type == "interval" && result.Interval != nil {
